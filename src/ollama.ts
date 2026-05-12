@@ -6,7 +6,7 @@ export interface OllamaOptions {
 
 export const defaultOllamaOptions: OllamaOptions = {
   baseUrl: "http://localhost:11434",
-  model: "gemma4:latest",
+  model: "gemma4:e4b",
   timeoutMs: 120000,
 };
 

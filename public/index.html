@@ -85,7 +85,18 @@
       margin-bottom: 0.4rem;
       display: flex;
       justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.5rem;
     }
+    .progress-label-left { flex: 1; min-width: 0; }
+    .progress-timing {
+      font-size: 0.75rem;
+      color: #64748b;
+      white-space: nowrap;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .progress-timing .eta { color: #818cf8; }
     progress {
       width: 100%;
       height: 6px;
@@ -228,8 +239,11 @@
 
   <div class="progress-wrap" id="progressWrap">
     <div class="progress-label">
-      <span id="phaseLabel">Processing…</span>
-      <span id="rowLabel"></span>
+      <div class="progress-label-left">
+        <div id="phaseLabel">Processing…</div>
+        <div id="rowLabel" style="color:#64748b;font-size:0.75rem;margin-top:0.15rem"></div>
+      </div>
+      <div class="progress-timing" id="timingLabel"></div>
     </div>
     <progress id="progressBar" value="0" max="100"></progress>
   </div>
@@ -270,6 +284,7 @@
   const progressBar  = document.getElementById('progressBar');
   const phaseLabel   = document.getElementById('phaseLabel');
   const rowLabel     = document.getElementById('rowLabel');
+  const timingLabel  = document.getElementById('timingLabel');
   const logEl        = document.getElementById('log');
   const resultEl     = document.getElementById('result');
   const entitiesPanel = document.getElementById('entitiesPanel');
@@ -284,8 +299,59 @@
 
   let currentJobId = null;
   let reviewMode = false;
-
   let selectedFile = null;
+
+  // ── Timing ───────────────────────────────────────────
+  let jobStartTime = null;
+  let timerInterval = null;
+  // For ETA: track batch completions with timestamps
+  let batchTimes = [];   // timestamps (ms) when each batch completed
+  let currentPhase = null;
+
+  function startTimer() {
+    jobStartTime = Date.now();
+    batchTimes = [];
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(updateTimingLabel, 1000);
+  }
+
+  function stopTimer() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  }
+
+  function fmtSeconds(s) {
+    s = Math.round(s);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60), sec = s % 60;
+    return m + 'm ' + sec + 's';
+  }
+
+  function updateTimingLabel(eta) {
+    if (!jobStartTime) return;
+    const elapsed = (Date.now() - jobStartTime) / 1000;
+    let html = '<span>Elapsed: ' + fmtSeconds(elapsed) + '</span>';
+    if (eta != null && eta > 0) {
+      html += '<br><span class="eta">~' + fmtSeconds(eta) + ' remaining</span>';
+    }
+    timingLabel.innerHTML = html;
+  }
+
+  function recordBatchDone(batchNum, totalBatches) {
+    const now = Date.now();
+    batchTimes.push({ batch: batchNum, t: now });
+    // Estimate rate from last few completions
+    if (batchTimes.length >= 2) {
+      const window = batchTimes.slice(-5);
+      const rate = (window.length - 1) / ((window[window.length-1].t - window[0].t) / 1000); // batches/sec
+      if (rate > 0) {
+        const remaining = totalBatches - batchNum;
+        const eta = remaining / rate;
+        updateTimingLabel(eta);
+        return;
+      }
+    }
+    updateTimingLabel(null);
+  }
 
   // ── File selection ────────────────────────────────────
   dropzone.addEventListener('click', () => fileInput.click());
@@ -342,6 +408,7 @@
       .map(tag => tag.dataset.entity)
       .filter(Boolean);
 
+    const isRemap = confirmBtn.textContent.includes('Re-run');
     confirmBtn.disabled = true;
     confirmBtn.textContent = 'Processing…';
     entitiesHint.textContent = '';
@@ -349,8 +416,6 @@
 
     // Remove × buttons now that review is done
     entityTags.querySelectorAll('.tag-remove').forEach(btn => btn.remove());
-
-    const isRemap = confirmBtn.textContent.includes('Re-run');
     const endpoint = isRemap
       ? `/api/jobs/${currentJobId}/remap`
       : `/api/jobs/${currentJobId}/confirm`;
@@ -369,12 +434,14 @@
     if (isRemap) {
       progressBar.value = 0;
       rowLabel.textContent = '';
+      timingLabel.textContent = '';
       phaseLabel.textContent = 'Processing…';
       progressWrap.style.display = 'block';
       logEl.style.display = 'block';
       startBtn.disabled = true;
       cancelBtn.style.display = 'block';
       dropzone.style.pointerEvents = 'none';
+      startTimer();
       openSSE(currentJobId);
     }
   });
@@ -432,6 +499,7 @@
     actionRow.style.display = 'none';
     progressBar.value = 0;
     rowLabel.textContent = '';
+    timingLabel.textContent = '';
     phaseLabel.textContent = 'Uploading…';
     progressWrap.style.display = 'block';
     logEl.style.display = 'block';
@@ -458,6 +526,7 @@
     }
 
     // Listen for progress
+    startTimer();
     openSSE(jobId);
   });
 
@@ -469,11 +538,14 @@
       if (event.type === 'started') {
         addLog(`Found ${event.total} rows — scanning columns: ${event.textColumns.join(', ')}`);
       } else if (event.type === 'phase') {
+        currentPhase = event.phase;
+        batchTimes = []; // reset ETA on each new phase
         phaseLabel.textContent = phaseLabels[event.phase] ?? event.phase;
         addLog(phaseLabels[event.phase] ?? event.phase, 'phase');
-        if (event.phase === 'mapping')  progressBar.value = 20;
-        if (event.phase === 'applying') progressBar.value = 50;
-        if (event.phase === 'writing')  progressBar.value = 90;
+        if (event.phase === 'extracting') progressBar.value = 2;
+        if (event.phase === 'mapping')    { progressBar.value = 20; rowLabel.textContent = ''; }
+        if (event.phase === 'applying')   progressBar.value = 50;
+        if (event.phase === 'writing')    progressBar.value = 90;
       } else if (event.type === 'entities_start') {
         entitiesPanel.style.display = 'block';
         entityTags.innerHTML = '<span class="tag-none">Scanning…</span>';
@@ -510,13 +582,26 @@
         confirmBtn.style.display = 'block';
         addLog('Review detected entities, then click Confirm & Continue', 'phase');
       } else if (event.type === 'llm_batch') {
-        addLog(`  LLM batch ${event.batch}/${event.total}…`);
+        rowLabel.textContent = `Batch ${event.batch} / ${event.total}`;
+        recordBatchDone(event.batch, event.total);
+        // Progress ranges: extracting = 2–18%, mapping = 20–48%
+        if (currentPhase === 'extracting') {
+          progressBar.value = 2 + Math.round((event.batch / event.total) * 16);
+        } else if (currentPhase === 'mapping') {
+          progressBar.value = 20 + Math.round((event.batch / event.total) * 28);
+        }
       } else if (event.type === 'row') {
-        rowLabel.textContent = `${event.processed} / ${event.total}`;
+        rowLabel.textContent = `Row ${event.processed} / ${event.total}`;
         progressBar.value = 50 + Math.round((event.processed / event.total) * 40);
+        // ETA for applying phase
+        if (batchTimes.length === 0) batchTimes.push({ batch: 0, t: Date.now() });
+        recordBatchDone(event.processed, event.total);
       } else if (event.type === 'done') {
         progressBar.value = 100;
+        rowLabel.textContent = '';
         phaseLabel.textContent = 'Complete';
+        stopTimer();
+        timingLabel.innerHTML = '<span>Total: ' + fmtSeconds(event.elapsed / 1000) + '</span>';
         addLog(`Done in ${(event.elapsed / 1000).toFixed(1)}s`, 'ok');
         showResult('✅ Sanitisation complete. Download your file below.', 'success');
         actionRow.style.display = 'flex';
@@ -525,11 +610,13 @@
       } else if (event.type === 'cancelled') {
         progressBar.value = 0;
         phaseLabel.textContent = 'Cancelled';
+        stopTimer();
         addLog('Job cancelled', 'err');
         showResult('⚠ Job cancelled. Select a file to start again.', 'error');
         resetControls();
         es.close();
       } else if (event.type === 'error') {
+        stopTimer();
         addLog('Error: ' + event.message, 'err');
         showResult('❌ ' + event.message, 'error');
         resetControls();
