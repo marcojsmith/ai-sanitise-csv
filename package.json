@@ -1,0 +1,16 @@
+{
+  "name": "ai-sanitise-csv",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "bun run --watch src/server.ts",
+    "start": "bun run src/server.ts"
+  },
+  "dependencies": {
+    "hono": "latest",
+    "papaparse": "latest"
+  },
+  "devDependencies": {
+    "@types/papaparse": "latest",
+    "bun-types": "latest"
+  }
+}

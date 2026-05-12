@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun add:*)",
+      "Bash(gh issue:*)",
+      "Bash(bun run:*)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(bunx eslint:*)",
+      "Bash(bunx coderabbit:*)",
+      "Bash(bunx @coderabbit/cli --prompt-only --type uncommitted)",
+      "WebFetch(domain:www.coderabbit.ai)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.coderabbit.ai)",
+      "Bash(wsl -- bash -c \"export PATH=\\\"$HOME/.local/bin:$PATH\\\" && coderabbit review --prompt-only --base-commit HEAD\")",
+      "Bash(ls .coderabbit*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(opencode run:*)",
+      "Bash(bunx vitest:*)",
+      "Bash(npx vitest:*)"
+    ]
+  }
+}

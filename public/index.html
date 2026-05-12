@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSV PII Sanitiser</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 620px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+    }
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 0.25rem; color: #f1f5f9; }
+    .subtitle { font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem; }
+
+    /* Hidden native input */
+    #fileInput { display: none; }
+
+    /* Drop zone */
+    .dropzone {
+      border: 2px dashed #334155;
+      border-radius: 8px;
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      background: #0f172a;
+    }
+    .dropzone:hover, .dropzone.drag-over {
+      border-color: #6366f1;
+      background: #1a1f35;
+    }
+    .dropzone.has-file {
+      border-style: solid;
+      border-color: #4f46e5;
+    }
+    .dropzone-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .dropzone-label {
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+    .dropzone-label strong { color: #a5b4fc; }
+    .dropzone-filename {
+      margin-top: 0.4rem;
+      font-size: 0.82rem;
+      color: #6366f1;
+      font-family: ui-monospace, monospace;
+      word-break: break-all;
+    }
+
+    button.primary {
+      margin-top: 1rem;
+      width: 100%;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.7rem 1.2rem;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button.primary:hover:not(:disabled) { background: #4f46e5; }
+    button.primary:disabled { background: #334155; cursor: not-allowed; color: #64748b; }
+
+    .progress-wrap { margin-top: 1.5rem; display: none; }
+    .progress-label {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin-bottom: 0.4rem;
+      display: flex;
+      justify-content: space-between;
+    }
+    progress {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      appearance: none;
+      background: #0f172a;
+      border: none;
+    }
+    progress::-webkit-progress-bar { background: #0f172a; border-radius: 3px; }
+    progress::-webkit-progress-value { background: #6366f1; border-radius: 3px; transition: width 0.3s; }
+    progress::-moz-progress-bar { background: #6366f1; border-radius: 3px; }
+
+    .log {
+      margin-top: 1rem;
+      background: #0f172a;
+      border-radius: 6px;
+      padding: 0.8rem;
+      max-height: 220px;
+      overflow-y: auto;
+      font-size: 0.78rem;
+      font-family: ui-monospace, monospace;
+      display: none;
+    }
+    .log li { list-style: none; padding: 0.15rem 0; color: #94a3b8; border-bottom: 1px solid #1e293b; }
+    .log li:last-child { border: none; }
+    .log .ok    { color: #34d399; }
+    .log .phase { color: #818cf8; font-weight: 600; }
+    .log .err   { color: #f87171; }
+
+    .result {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      display: none;
+    }
+    .result.success { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+    .result.error   { background: #2d0808; color: #f87171; border: 1px solid #7f1d1d; }
+
+    .entities-panel {
+      margin-top: 1rem;
+      display: none;
+    }
+    .entities-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.6rem;
+    }
+    .entities-panel h3 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .entities-hint {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+    .entity-group { margin-bottom: 0.8rem; }
+    .entity-group-label {
+      font-size: 0.72rem;
+      color: #64748b;
+      margin-bottom: 0.35rem;
+    }
+    .entity-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .tag {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .tag-entity { background: #1e1b4b; color: #a5b4fc; border: 1px solid #3730a3; }
+    .tag-email  { background: #1c1917; color: #fb923c; border: 1px solid #78350f; }
+    .tag-none   { color: #475569; font-style: italic; font-size: 0.78rem; }
+    .tag-remove {
+      margin-left: 0.3rem;
+      opacity: 0.5;
+      cursor: pointer;
+      font-style: normal;
+      font-size: 0.7rem;
+      line-height: 1;
+    }
+    .tag-remove:hover { opacity: 1; }
+    button.confirm-btn {
+      margin-top: 0.8rem;
+      width: 100%;
+      background: #16a34a;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.6rem 1.2rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button.confirm-btn:hover { background: #15803d; }
+    .action-row {
+      margin-top: 1rem;
+      display: none;
+      gap: 0.5rem;
+    }
+    .action-row button {
+      margin-top: 0;
+      flex: 1;
+    }
+    button.secondary {
+      background: #334155;
+      color: #e2e8f0;
+    }
+    button.secondary:hover { background: #475569; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>CSV PII Sanitiser</h1>
+  <p class="subtitle">Replaces names, email addresses, and company references using Ollama (gemma4:latest)</p>
+
+  <input type="file" id="fileInput" accept=".csv" />
+
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-icon">📂</div>
+    <div class="dropzone-label">
+      <strong>Click to browse</strong> or drag &amp; drop a CSV file
+    </div>
+    <div class="dropzone-filename" id="dropzoneFilename"></div>
+  </div>
+
+  <div style="display:flex;gap:0.5rem;margin-top:1rem">
+    <button class="primary" id="startBtn" style="margin-top:0;flex:1" disabled>Sanitise File</button>
+    <button class="secondary" id="cancelBtn" style="margin-top:0;display:none;width:auto;padding:0.7rem 1rem">✕ Cancel</button>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-label">
+      <span id="phaseLabel">Processing…</span>
+      <span id="rowLabel"></span>
+    </div>
+    <progress id="progressBar" value="0" max="100"></progress>
+  </div>
+
+  <div class="entities-panel" id="entitiesPanel">
+    <div class="entities-header">
+      <h3>Detected PII</h3>
+      <span class="entities-hint" id="entitiesHint"></span>
+    </div>
+    <div class="entity-group" id="entityGroup">
+      <div class="entity-group-label">Names &amp; organisations</div>
+      <div class="entity-tags" id="entityTags"></div>
+    </div>
+    <div class="entity-group" id="emailGroup">
+      <div class="entity-group-label">Email addresses</div>
+      <div class="entity-tags" id="emailTags"></div>
+    </div>
+    <button class="confirm-btn" id="confirmBtn" style="display:none">
+      Confirm &amp; Continue →
+    </button>
+  </div>
+
+  <div class="action-row" id="actionRow">
+    <button class="primary" id="downloadBtn">⬇ Download</button>
+    <button class="secondary" id="rerunBtn">↺ Re-run mapping</button>
+  </div>
+
+  <ul class="log" id="log"></ul>
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+  const fileInput    = document.getElementById('fileInput');
+  const dropzone     = document.getElementById('dropzone');
+  const dropzoneName = document.getElementById('dropzoneFilename');
+  const startBtn     = document.getElementById('startBtn');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressBar  = document.getElementById('progressBar');
+  const phaseLabel   = document.getElementById('phaseLabel');
+  const rowLabel     = document.getElementById('rowLabel');
+  const logEl        = document.getElementById('log');
+  const resultEl     = document.getElementById('result');
+  const entitiesPanel = document.getElementById('entitiesPanel');
+  const entitiesHint = document.getElementById('entitiesHint');
+  const entityTags   = document.getElementById('entityTags');
+  const emailTags    = document.getElementById('emailTags');
+  const confirmBtn   = document.getElementById('confirmBtn');
+  const cancelBtn    = document.getElementById('cancelBtn');
+  const actionRow    = document.getElementById('actionRow');
+  const downloadBtn  = document.getElementById('downloadBtn');
+  const rerunBtn     = document.getElementById('rerunBtn');
+
+  let currentJobId = null;
+  let reviewMode = false;
+
+  let selectedFile = null;
+
+  // ── File selection ────────────────────────────────────
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  });
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+  });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.toLowerCase().endsWith('.csv')) setFile(f);
+  });
+
+  function setFile(f) {
+    selectedFile = f;
+    dropzone.classList.add('has-file');
+    dropzone.querySelector('.dropzone-icon').textContent = '✅';
+    dropzoneName.textContent = f.name;
+    startBtn.disabled = false;
+  }
+
+  // ── Entity tag helpers ───────────────────────────────
+  function makeEntityTag(text, removable) {
+    const tag = document.createElement('span');
+    tag.className = 'tag tag-entity';
+    tag.dataset.entity = text;
+    tag.appendChild(document.createTextNode(text));
+    if (removable) addRemoveButton(tag);
+    return tag;
+  }
+
+  function addRemoveButton(tag) {
+    const btn = document.createElement('span');
+    btn.className = 'tag-remove';
+    btn.title = 'Remove';
+    btn.textContent = '×';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tag.remove();
+    });
+    tag.appendChild(btn);
+  }
+
+  // ── Confirm button ────────────────────────────────────
+  confirmBtn.addEventListener('click', async () => {
+    const entities = Array.from(entityTags.querySelectorAll('.tag-entity'))
+      .map(tag => tag.dataset.entity)
+      .filter(Boolean);
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Processing…';
+    entitiesHint.textContent = '';
+    reviewMode = false;
+
+    // Remove × buttons now that review is done
+    entityTags.querySelectorAll('.tag-remove').forEach(btn => btn.remove());
+
+    const isRemap = confirmBtn.textContent.includes('Re-run');
+    const endpoint = isRemap
+      ? `/api/jobs/${currentJobId}/remap`
+      : `/api/jobs/${currentJobId}/confirm`;
+
+    await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entities }),
+    });
+
+    confirmBtn.style.display = 'none';
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'Confirm & Continue →';
+
+    // For re-run, reset progress UI and open a fresh SSE stream
+    if (isRemap) {
+      progressBar.value = 0;
+      rowLabel.textContent = '';
+      phaseLabel.textContent = 'Processing…';
+      progressWrap.style.display = 'block';
+      logEl.style.display = 'block';
+      startBtn.disabled = true;
+      cancelBtn.style.display = 'block';
+      dropzone.style.pointerEvents = 'none';
+      openSSE(currentJobId);
+    }
+  });
+
+  // ── Download ─────────────────────────────────────────
+  downloadBtn.addEventListener('click', () => {
+    triggerDownload('/api/download/' + currentJobId);
+  });
+
+  // ── Re-run mapping ───────────────────────────────────
+  rerunBtn.addEventListener('click', () => {
+    actionRow.style.display = 'none';
+    resultEl.style.display = 'none';
+    reviewMode = true;
+    entitiesHint.textContent = 'Click × to remove incorrect entries';
+    // Re-add remove buttons to entity tags
+    entityTags.querySelectorAll('.tag-entity').forEach(tag => {
+      if (!tag.querySelector('.tag-remove')) addRemoveButton(tag);
+    });
+    confirmBtn.textContent = 'Confirm & Re-run →';
+    confirmBtn.style.display = 'block';
+    logEl.innerHTML = '';
+  });
+
+  // ── Sanitisation ──────────────────────────────────────
+  const phaseLabels = {
+    reading:    '📖 Reading CSV file…',
+    extracting: '🔍 Extracting unique PII values…',
+    mapping:    '🤖 Generating fake replacements via Ollama…',
+    applying:   '✏️ Applying replacements…',
+    writing:    '💾 Writing sanitised file…',
+  };
+
+  function addLog(text, cls = '') {
+    const li = document.createElement('li');
+    if (cls) li.className = cls;
+    li.textContent = text;
+    logEl.appendChild(li);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  startBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    // Reset UI
+    logEl.innerHTML = '';
+    resultEl.style.display = 'none';
+    resultEl.className = 'result';
+    entitiesPanel.style.display = 'none';
+    entityTags.innerHTML = '';
+    emailTags.innerHTML = '';
+    confirmBtn.style.display = 'none';
+    entitiesHint.textContent = '';
+    reviewMode = false;
+    actionRow.style.display = 'none';
+    progressBar.value = 0;
+    rowLabel.textContent = '';
+    phaseLabel.textContent = 'Uploading…';
+    progressWrap.style.display = 'block';
+    logEl.style.display = 'block';
+    startBtn.disabled = true;
+    cancelBtn.style.display = 'block';
+    dropzone.style.pointerEvents = 'none';
+
+    // Upload file
+    const form = new FormData();
+    form.append('file', selectedFile);
+
+    let jobId = null;
+    try {
+      const res = await fetch('/api/sanitise', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to start job');
+      jobId = data.jobId;
+      currentJobId = jobId;
+    } catch (err) {
+      addLog('Error: ' + err.message, 'err');
+      showResult('❌ ' + err.message, 'error');
+      resetControls();
+      return;
+    }
+
+    // Listen for progress
+    openSSE(jobId);
+  });
+
+  function openSSE(jobId) {
+    const es = new EventSource('/api/progress/' + jobId);
+    es.onmessage = (e) => {
+      const event = JSON.parse(e.data);
+
+      if (event.type === 'started') {
+        addLog(`Found ${event.total} rows — scanning columns: ${event.textColumns.join(', ')}`);
+      } else if (event.type === 'phase') {
+        phaseLabel.textContent = phaseLabels[event.phase] ?? event.phase;
+        addLog(phaseLabels[event.phase] ?? event.phase, 'phase');
+        if (event.phase === 'mapping')  progressBar.value = 20;
+        if (event.phase === 'applying') progressBar.value = 50;
+        if (event.phase === 'writing')  progressBar.value = 90;
+      } else if (event.type === 'entities_start') {
+        entitiesPanel.style.display = 'block';
+        entityTags.innerHTML = '<span class="tag-none">Scanning…</span>';
+        emailTags.innerHTML = '';
+        if (event.emails.length === 0) {
+          emailTags.innerHTML = '<span class="tag-none">None found</span>';
+        } else {
+          event.emails.forEach(e => {
+            const tag = document.createElement('span');
+            tag.className = 'tag tag-email';
+            tag.textContent = e;
+            emailTags.appendChild(tag);
+          });
+        }
+      } else if (event.type === 'entities_found') {
+        const placeholder = entityTags.querySelector('.tag-none');
+        if (event.entities.length === 0) {
+          if (placeholder) placeholder.textContent = 'None found';
+          return;
+        }
+        if (placeholder) placeholder.remove();
+        event.entities.forEach(e => {
+          entityTags.appendChild(makeEntityTag(e, false));
+        });
+      } else if (event.type === 'review') {
+        reviewMode = true;
+        entitiesHint.textContent = 'Click × to remove incorrect entries';
+        // Add remove buttons to all existing entity tags
+        entityTags.querySelectorAll('.tag-entity').forEach(tag => {
+          if (!tag.querySelector('.tag-remove')) {
+            addRemoveButton(tag);
+          }
+        });
+        confirmBtn.style.display = 'block';
+        addLog('Review detected entities, then click Confirm & Continue', 'phase');
+      } else if (event.type === 'llm_batch') {
+        addLog(`  LLM batch ${event.batch}/${event.total}…`);
+      } else if (event.type === 'row') {
+        rowLabel.textContent = `${event.processed} / ${event.total}`;
+        progressBar.value = 50 + Math.round((event.processed / event.total) * 40);
+      } else if (event.type === 'done') {
+        progressBar.value = 100;
+        phaseLabel.textContent = 'Complete';
+        addLog(`Done in ${(event.elapsed / 1000).toFixed(1)}s`, 'ok');
+        showResult('✅ Sanitisation complete. Download your file below.', 'success');
+        actionRow.style.display = 'flex';
+        resetControls();
+        es.close();
+      } else if (event.type === 'cancelled') {
+        progressBar.value = 0;
+        phaseLabel.textContent = 'Cancelled';
+        addLog('Job cancelled', 'err');
+        showResult('⚠ Job cancelled. Select a file to start again.', 'error');
+        resetControls();
+        es.close();
+      } else if (event.type === 'error') {
+        addLog('Error: ' + event.message, 'err');
+        showResult('❌ ' + event.message, 'error');
+        resetControls();
+        es.close();
+      }
+    };
+
+    es.onerror = () => {
+      addLog('Connection to server lost', 'err');
+      resetControls();
+      es.close();
+    };
+  }
+
+  function triggerDownload(url) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  function showResult(msg, type) {
+    resultEl.textContent = msg;
+    resultEl.className = 'result ' + type;
+    resultEl.style.display = 'block';
+  }
+
+  cancelBtn.addEventListener('click', async () => {
+    if (!currentJobId) return;
+    cancelBtn.disabled = true;
+    await fetch(`/api/jobs/${currentJobId}/cancel`, { method: 'POST' });
+  });
+
+  function resetControls() {
+    startBtn.disabled = false;
+    cancelBtn.style.display = 'none';
+    cancelBtn.disabled = false;
+    dropzone.style.pointerEvents = '';
+  }
+</script>
+</body>
+</html>
