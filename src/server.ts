@@ -14,6 +14,7 @@ const jobConfirmResolvers = new Map<string, (entities: string[]) => void>();
 const jobRemapData = new Map<string, RemapData>();
 const jobCancelTokens = new Map<string, CancelToken>();
 const jobOutputs = new Map<string, { filename: string; content: string }>();
+const jobOpts = new Map<string, typeof defaultOllamaOptions>();
 
 function generateJobId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -36,6 +37,19 @@ function resetJobForRerun(jobId: string) {
   }
 }
 
+// List available Ollama models
+app.get("/api/models", async (c) => {
+  try {
+    const res = await fetch(`${defaultOllamaOptions.baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return c.json({ models: [] });
+    const data = await res.json() as { models: { name: string }[] };
+    const names = (data.models ?? []).map((m) => m.name).sort();
+    return c.json({ models: names, default: defaultOllamaOptions.model });
+  } catch {
+    return c.json({ models: [] });
+  }
+});
+
 // Serve UI
 app.get("/", (c) => {
   const html = readFileSync(path.join(import.meta.dir, "../public/index.html"), "utf-8");
@@ -50,6 +64,9 @@ app.post("/api/sanitise", async (c) => {
   if (!file || typeof file === "string") {
     return c.json({ error: "A CSV file must be uploaded" }, 400);
   }
+
+  const modelParam = formData.get("model");
+  const model = (typeof modelParam === "string" && modelParam.trim()) ? modelParam.trim() : defaultOllamaOptions.model;
 
   const originalName = (file as File).name;
   const baseName = path.basename(originalName, path.extname(originalName));
@@ -70,6 +87,9 @@ app.post("/api/sanitise", async (c) => {
   const cancelToken: CancelToken = { cancelled: false };
   jobCancelTokens.set(jobId, cancelToken);
 
+  const opts = { ...defaultOllamaOptions, model };
+  jobOpts.set(jobId, opts);
+
   job.status = "running";
   runSanitisation(
     job,
@@ -86,7 +106,7 @@ app.post("/api/sanitise", async (c) => {
         try { unlinkSync(tmpPath); } catch { /* ignore */ }
       }
     },
-    defaultOllamaOptions,
+    opts,
     waitForConfirmation,
     (remapData) => { jobRemapData.set(jobId, remapData); },
     cancelToken
@@ -112,7 +132,7 @@ app.get("/api/progress/:jobId", (c) => {
           closed = true;
           return;
         }
-        if (event.type === "done" || event.type === "error") {
+        if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
           closed = true;
           try { controller.close(); } catch { /* already closed */ }
           const listeners = jobListeners.get(jobId) ?? [];
@@ -171,6 +191,7 @@ app.post("/api/jobs/:jobId/remap", async (c) => {
   const remapCancelToken: CancelToken = { cancelled: false };
   jobCancelTokens.set(jobId, remapCancelToken);
 
+  const remapOpts = jobOpts.get(jobId) ?? defaultOllamaOptions;
   remapAndApply(remapData, entities, (event) => {
     emit(jobId, event);
     if (event.type === "done") {
@@ -186,7 +207,7 @@ app.post("/api/jobs/:jobId/remap", async (c) => {
       const job = jobs.get(jobId);
       if (job) job.status = "error";
     }
-  }, defaultOllamaOptions, remapCancelToken).catch(console.error);
+  }, remapOpts, remapCancelToken).catch(console.error);
 
   return c.json({ ok: true }, 202);
 });

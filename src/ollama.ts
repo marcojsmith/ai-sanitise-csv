@@ -1,3 +1,8 @@
+export interface EntityScore {
+  entity: string;
+  confidence: "high" | "medium" | "low";
+}
+
 export interface OllamaOptions {
   baseUrl: string;
   model: string;
@@ -83,6 +88,54 @@ ${numberedExcerpts}`;
     } catch { /* fall through */ }
   }
   return [];
+}
+
+/**
+ * Score a list of extracted entities by confidence that they are genuine PII.
+ * Falls back to "medium" for all if the LLM call fails.
+ */
+export async function scoreEntityConfidence(
+  entities: string[],
+  opts: OllamaOptions
+): Promise<EntityScore[]> {
+  if (entities.length === 0) return [];
+
+  const prompt = `You are a data anonymisation assistant. Below is a list of strings extracted as potential PII (person names or company/organisation names) from support ticket text.
+
+Rate each one's confidence as genuine PII:
+- "high": clearly a real person name or company/organisation name
+- "medium": plausible name but ambiguous
+- "low": likely a false positive (software product, tech term, job title, department name, generic word, etc.)
+
+Return ONLY a JSON array, one object per input, in this exact format:
+[{"entity":"Alice Smith","confidence":"high"},{"entity":"SAP","confidence":"low"}]
+
+Inputs:
+${JSON.stringify(entities)}`;
+
+  const parse = (raw: string): EntityScore[] | null => {
+    try {
+      const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((v): v is EntityScore =>
+          typeof v?.entity === "string" && ["high", "medium", "low"].includes(v?.confidence)
+        );
+      }
+    } catch { /* fall through */ }
+    return null;
+  };
+
+  try {
+    const result = parse(await callOllamaRaw(prompt, opts));
+    if (result) return result;
+    const retry = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON array, no explanation or markdown.`;
+    const result2 = parse(await callOllamaRaw(retry, opts));
+    if (result2) return result2;
+  } catch { /* fall through */ }
+
+  // Fallback: return all as medium
+  return entities.map(e => ({ entity: e, confidence: "medium" as const }));
 }
 
 /**

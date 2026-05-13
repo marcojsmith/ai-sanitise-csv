@@ -4,15 +4,18 @@ import {
   defaultOllamaOptions,
   extractPIIFromSubjects,
   generateEntityMapping,
+  scoreEntityConfidence,
+  type EntityScore,
   type OllamaOptions,
 } from "./ollama";
 
 export type ProgressEvent =
   | { type: "started"; total: number; filePath: string; textColumns: string[] }
-  | { type: "phase"; phase: "reading" | "extracting" | "mapping" | "applying" | "writing" }
+  | { type: "phase"; phase: "reading" | "extracting" | "scoring" | "mapping" | "applying" | "writing" }
   | { type: "llm_batch"; batch: number; total: number }
   | { type: "entities_start"; emails: string[] }
   | { type: "entities_found"; entities: string[] }
+  | { type: "entities_scored"; scores: EntityScore[] }
   | { type: "review" }
   | { type: "row"; processed: number; total: number }
   | { type: "cancelled" }
@@ -205,6 +208,12 @@ export async function runSanitisation(
     if (allEntities.size === 0) {
       emit({ type: "entities_found", entities: [] });
     }
+
+    // Score entities by confidence so the UI can group them for review
+    emit({ type: "phase", phase: "scoring" });
+    const scores = await scoreEntityConfidence(Array.from(allEntities), opts);
+    if (cancelToken.cancelled) { emit({ type: "cancelled" }); return; }
+    emit({ type: "entities_scored", scores });
 
     // Store original rows (deep copy) before any replacements
     const remapData: RemapData = {

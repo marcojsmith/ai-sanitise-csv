@@ -175,6 +175,9 @@
       font-size: 0.75rem;
       font-weight: 500;
     }
+    .confidence-low    { color: #f87171; }
+    .confidence-medium { color: #fbbf24; }
+    .confidence-high   { color: #34d399; }
     .tag-entity { background: #1e1b4b; color: #a5b4fc; border: 1px solid #3730a3; }
     .tag-email  { background: #1c1917; color: #fb923c; border: 1px solid #78350f; }
     .tag-none   { color: #475569; font-style: italic; font-size: 0.78rem; }
@@ -215,6 +218,25 @@
       color: #e2e8f0;
     }
     button.secondary:hover { background: #475569; }
+
+    .model-row {
+      margin-top: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .model-row label { font-size: 0.8rem; color: #64748b; white-space: nowrap; }
+    .model-row select {
+      flex: 1;
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 0.4rem 0.6rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .model-row select:focus { outline: none; border-color: #6366f1; }
   </style>
 </head>
 <body>
@@ -230,6 +252,13 @@
       <strong>Click to browse</strong> or drag &amp; drop a CSV file
     </div>
     <div class="dropzone-filename" id="dropzoneFilename"></div>
+  </div>
+
+  <div class="model-row">
+    <label for="modelSelect">Model</label>
+    <select id="modelSelect">
+      <option value="">Loading models…</option>
+    </select>
   </div>
 
   <div style="display:flex;gap:0.5rem;margin-top:1rem">
@@ -248,14 +277,30 @@
     <progress id="progressBar" value="0" max="100"></progress>
   </div>
 
+  <ul class="log" id="log"></ul>
+
   <div class="entities-panel" id="entitiesPanel">
     <div class="entities-header">
       <h3>Detected PII</h3>
       <span class="entities-hint" id="entitiesHint"></span>
     </div>
-    <div class="entity-group" id="entityGroup">
+    <!-- Shown during extraction, replaced by confidence groups after scoring -->
+    <div class="entity-group" id="entityGroupUnscored">
       <div class="entity-group-label">Names &amp; organisations</div>
       <div class="entity-tags" id="entityTags"></div>
+    </div>
+    <!-- Confidence groups — shown after scoring -->
+    <div class="entity-group" id="groupLow" style="display:none">
+      <div class="entity-group-label confidence-low">⚠ Low confidence — review carefully</div>
+      <div class="entity-tags" id="tagsLow"></div>
+    </div>
+    <div class="entity-group" id="groupMedium" style="display:none">
+      <div class="entity-group-label confidence-medium">~ Medium confidence</div>
+      <div class="entity-tags" id="tagsMedium"></div>
+    </div>
+    <div class="entity-group" id="groupHigh" style="display:none">
+      <div class="entity-group-label confidence-high">✓ High confidence</div>
+      <div class="entity-tags" id="tagsHigh"></div>
     </div>
     <div class="entity-group" id="emailGroup">
       <div class="entity-group-label">Email addresses</div>
@@ -271,7 +316,6 @@
     <button class="secondary" id="rerunBtn">↺ Re-run mapping</button>
   </div>
 
-  <ul class="log" id="log"></ul>
   <div class="result" id="result"></div>
 </div>
 
@@ -287,12 +331,20 @@
   const timingLabel  = document.getElementById('timingLabel');
   const logEl        = document.getElementById('log');
   const resultEl     = document.getElementById('result');
-  const entitiesPanel = document.getElementById('entitiesPanel');
-  const entitiesHint = document.getElementById('entitiesHint');
-  const entityTags   = document.getElementById('entityTags');
-  const emailTags    = document.getElementById('emailTags');
-  const confirmBtn   = document.getElementById('confirmBtn');
+  const entitiesPanel       = document.getElementById('entitiesPanel');
+  const entitiesHint        = document.getElementById('entitiesHint');
+  const entityGroupUnscored = document.getElementById('entityGroupUnscored');
+  const entityTags          = document.getElementById('entityTags');
+  const groupLow            = document.getElementById('groupLow');
+  const groupMedium         = document.getElementById('groupMedium');
+  const groupHigh           = document.getElementById('groupHigh');
+  const tagsLow             = document.getElementById('tagsLow');
+  const tagsMedium          = document.getElementById('tagsMedium');
+  const tagsHigh            = document.getElementById('tagsHigh');
+  const emailTags           = document.getElementById('emailTags');
+  const confirmBtn          = document.getElementById('confirmBtn');
   const cancelBtn    = document.getElementById('cancelBtn');
+  const modelSelect  = document.getElementById('modelSelect');
   const actionRow    = document.getElementById('actionRow');
   const downloadBtn  = document.getElementById('downloadBtn');
   const rerunBtn     = document.getElementById('rerunBtn');
@@ -306,11 +358,13 @@
   let timerInterval = null;
   // For ETA: track batch completions with timestamps
   let batchTimes = [];   // timestamps (ms) when each batch completed
+  let lastEtaAt = null;  // { eta: seconds, recordedAt: ms } — persists between ticks
   let currentPhase = null;
 
   function startTimer() {
     jobStartTime = Date.now();
     batchTimes = [];
+    lastEtaAt = null;
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(updateTimingLabel, 1000);
   }
@@ -329,9 +383,18 @@
   function updateTimingLabel(eta) {
     if (!jobStartTime) return;
     const elapsed = (Date.now() - jobStartTime) / 1000;
+    // If a new eta was provided, record it with the current timestamp
+    if (eta != null) {
+      lastEtaAt = { eta, recordedAt: Date.now() };
+    }
     let html = '<span>Elapsed: ' + fmtSeconds(elapsed) + '</span>';
-    if (eta != null && eta > 0) {
-      html += '<br><span class="eta">~' + fmtSeconds(eta) + ' remaining</span>';
+    if (lastEtaAt != null) {
+      // Count down from the recorded estimate as time passes
+      const ageSeconds = (Date.now() - lastEtaAt.recordedAt) / 1000;
+      const remaining = lastEtaAt.eta - ageSeconds;
+      if (remaining > 0) {
+        html += '<br><span class="eta">~' + fmtSeconds(remaining) + ' remaining</span>';
+      }
     }
     timingLabel.innerHTML = html;
   }
@@ -352,6 +415,28 @@
     }
     updateTimingLabel(null);
   }
+
+  // ── Load models ──────────────────────────────────────
+  (async () => {
+    try {
+      const res = await fetch('/api/models');
+      const data = await res.json();
+      modelSelect.innerHTML = '';
+      if (data.models.length === 0) {
+        modelSelect.innerHTML = '<option value="">No models found</option>';
+        return;
+      }
+      data.models.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name === data.default) opt.selected = true;
+        modelSelect.appendChild(opt);
+      });
+    } catch {
+      modelSelect.innerHTML = '<option value="">Could not load models</option>';
+    }
+  })();
 
   // ── File selection ────────────────────────────────────
   dropzone.addEventListener('click', () => fileInput.click());
@@ -404,9 +489,11 @@
 
   // ── Confirm button ────────────────────────────────────
   confirmBtn.addEventListener('click', async () => {
-    const entities = Array.from(entityTags.querySelectorAll('.tag-entity'))
-      .map(tag => tag.dataset.entity)
-      .filter(Boolean);
+    // Collect from all confidence groups (and fallback unscored container)
+    const allTagContainers = [tagsLow, tagsMedium, tagsHigh, entityTags];
+    const entities = allTagContainers.flatMap(c =>
+      Array.from(c.querySelectorAll('.tag-entity')).map(tag => tag.dataset.entity)
+    ).filter(Boolean);
 
     const isRemap = confirmBtn.textContent.includes('Re-run');
     confirmBtn.disabled = true;
@@ -470,6 +557,7 @@
   const phaseLabels = {
     reading:    '📖 Reading CSV file…',
     extracting: '🔍 Extracting unique PII values…',
+    scoring:    '🧠 Scoring entity confidence…',
     mapping:    '🤖 Generating fake replacements via Ollama…',
     applying:   '✏️ Applying replacements…',
     writing:    '💾 Writing sanitised file…',
@@ -492,6 +580,13 @@
     resultEl.className = 'result';
     entitiesPanel.style.display = 'none';
     entityTags.innerHTML = '';
+    tagsLow.innerHTML = '';
+    tagsMedium.innerHTML = '';
+    tagsHigh.innerHTML = '';
+    entityGroupUnscored.style.display = 'block';
+    groupLow.style.display = 'none';
+    groupMedium.style.display = 'none';
+    groupHigh.style.display = 'none';
     emailTags.innerHTML = '';
     confirmBtn.style.display = 'none';
     entitiesHint.textContent = '';
@@ -510,6 +605,7 @@
     // Upload file
     const form = new FormData();
     form.append('file', selectedFile);
+    if (modelSelect.value) form.append('model', modelSelect.value);
 
     let jobId = null;
     try {
@@ -539,13 +635,14 @@
         addLog(`Found ${event.total} rows — scanning columns: ${event.textColumns.join(', ')}`);
       } else if (event.type === 'phase') {
         currentPhase = event.phase;
-        batchTimes = []; // reset ETA on each new phase
+        batchTimes = []; lastEtaAt = null; // reset ETA on each new phase
         phaseLabel.textContent = phaseLabels[event.phase] ?? event.phase;
         addLog(phaseLabels[event.phase] ?? event.phase, 'phase');
         if (event.phase === 'extracting') progressBar.value = 2;
-        if (event.phase === 'mapping')    { progressBar.value = 20; rowLabel.textContent = ''; }
-        if (event.phase === 'applying')   progressBar.value = 50;
-        if (event.phase === 'writing')    progressBar.value = 90;
+        if (event.phase === 'scoring')    progressBar.value = 50;
+        if (event.phase === 'mapping')    { progressBar.value = 55; rowLabel.textContent = ''; }
+        if (event.phase === 'applying')   progressBar.value = 75;
+        if (event.phase === 'writing')    progressBar.value = 96;
       } else if (event.type === 'entities_start') {
         entitiesPanel.style.display = 'block';
         entityTags.innerHTML = '<span class="tag-none">Scanning…</span>';
@@ -570,29 +667,47 @@
         event.entities.forEach(e => {
           entityTags.appendChild(makeEntityTag(e, false));
         });
+      } else if (event.type === 'entities_scored') {
+        progressBar.value = 55;
+        // Hide the flat unscored group, show the three confidence groups
+        entityGroupUnscored.style.display = 'none';
+        const buckets = { low: tagsLow, medium: tagsMedium, high: tagsHigh };
+        const groups  = { low: groupLow, medium: groupMedium, high: groupHigh };
+        // Build a lookup from the scores
+        const scoreMap = new Map(event.scores.map(s => [s.entity.toLowerCase(), s.confidence]));
+        // Move existing unscored tags into the right bucket (match by data-entity)
+        entityTags.querySelectorAll('.tag-entity').forEach(tag => {
+          const entity = tag.dataset.entity ?? '';
+          const conf = scoreMap.get(entity.toLowerCase()) ?? 'medium';
+          buckets[conf].appendChild(tag);
+        });
+        // Show groups that have entries, in low→medium→high order
+        ['low', 'medium', 'high'].forEach(c => {
+          if (buckets[c].children.length > 0) groups[c].style.display = 'block';
+        });
       } else if (event.type === 'review') {
         reviewMode = true;
         entitiesHint.textContent = 'Click × to remove incorrect entries';
-        // Add remove buttons to all existing entity tags
-        entityTags.querySelectorAll('.tag-entity').forEach(tag => {
-          if (!tag.querySelector('.tag-remove')) {
-            addRemoveButton(tag);
-          }
+        // Add remove buttons to all entity tags across all confidence groups
+        [tagsLow, tagsMedium, tagsHigh, entityTags].forEach(container => {
+          container.querySelectorAll('.tag-entity').forEach(tag => {
+            if (!tag.querySelector('.tag-remove')) addRemoveButton(tag);
+          });
         });
         confirmBtn.style.display = 'block';
         addLog('Review detected entities, then click Confirm & Continue', 'phase');
       } else if (event.type === 'llm_batch') {
         rowLabel.textContent = `Batch ${event.batch} / ${event.total}`;
         recordBatchDone(event.batch, event.total);
-        // Progress ranges: extracting = 2–18%, mapping = 20–48%
+        // Progress ranges: extracting = 2–50%, mapping = 55–75%
         if (currentPhase === 'extracting') {
-          progressBar.value = 2 + Math.round((event.batch / event.total) * 16);
+          progressBar.value = 2 + Math.round((event.batch / event.total) * 48);
         } else if (currentPhase === 'mapping') {
-          progressBar.value = 20 + Math.round((event.batch / event.total) * 28);
+          progressBar.value = 55 + Math.round((event.batch / event.total) * 20);
         }
       } else if (event.type === 'row') {
         rowLabel.textContent = `Row ${event.processed} / ${event.total}`;
-        progressBar.value = 50 + Math.round((event.processed / event.total) * 40);
+        progressBar.value = 75 + Math.round((event.processed / event.total) * 21);
         // ETA for applying phase
         if (batchTimes.length === 0) batchTimes.push({ batch: 0, t: Date.now() });
         recordBatchDone(event.processed, event.total);
