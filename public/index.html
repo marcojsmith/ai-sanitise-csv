@@ -1,778 +1,899 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CSV PII Sanitiser</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
-    }
-    .card {
-      background: #1e293b;
-      border-radius: 12px;
-      padding: 2rem;
-      width: 100%;
-      max-width: 620px;
-      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
-    }
-    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 0.25rem; color: #f1f5f9; }
-    .subtitle { font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSV PII Sanitiser</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #212436;
+  --border: #2d3148;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-muted: rgba(99,102,241,0.15);
+  --green: #22c55e;
+  --yellow: #eab308;
+  --red: #ef4444;
+  --blue: #3b82f6;
+  --purple: #a855f7;
+  --sidebar-w: 220px;
+}
+body.light {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --surface2: #f8fafc;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #94a3b8;
+  --accent-muted: rgba(99,102,241,0.08);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; height: 100vh; display: flex; overflow: hidden; }
 
-    /* Hidden native input */
-    #fileInput { display: none; }
+/* Layout */
+#app { display: flex; width: 100%; height: 100vh; }
+#sidebar { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#topbar { height: 56px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: var(--surface); flex-shrink: 0; }
+#content { flex: 1; overflow-y: auto; padding: 24px; }
 
-    /* Drop zone */
-    .dropzone {
-      border: 2px dashed #334155;
-      border-radius: 8px;
-      padding: 2rem 1rem;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      background: #0f172a;
-    }
-    .dropzone:hover, .dropzone.drag-over {
-      border-color: #6366f1;
-      background: #1a1f35;
-    }
-    .dropzone.has-file {
-      border-style: solid;
-      border-color: #4f46e5;
-    }
-    .dropzone-icon { font-size: 2rem; margin-bottom: 0.5rem; }
-    .dropzone-label {
-      font-size: 0.9rem;
-      color: #94a3b8;
-    }
-    .dropzone-label strong { color: #a5b4fc; }
-    .dropzone-filename {
-      margin-top: 0.4rem;
-      font-size: 0.82rem;
-      color: #6366f1;
-      font-family: ui-monospace, monospace;
-      word-break: break-all;
-    }
+/* Sidebar */
+.sidebar-logo { padding: 20px 16px 16px; border-bottom: 1px solid var(--border); }
+.sidebar-logo .logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+.sidebar-logo .logo-icon svg { width: 18px; height: 18px; }
+.sidebar-logo .logo-title { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.2; }
+.sidebar-logo .logo-sub { font-size: 13px; color: var(--accent); font-weight: 600; }
+.sidebar-nav { flex: 1; padding: 12px 8px; }
+.nav-link { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; color: var(--text-muted); cursor: pointer; user-select: none; font-size: 13.5px; font-weight: 500; transition: background 0.15s, color 0.15s; position: relative; }
+.nav-link:hover { background: var(--surface2); color: var(--text); }
+.nav-link.active { background: var(--accent-muted); color: var(--accent); }
+.nav-link svg { width: 16px; height: 16px; flex-shrink: 0; }
+.nav-badge { background: var(--red); color: white; border-radius: 10px; font-size: 10px; font-weight: 700; padding: 1px 6px; min-width: 18px; text-align: center; display: none; margin-left: auto; }
+.nav-badge.visible { display: inline-block; }
+.sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 11px; }
 
-    button.primary {
-      margin-top: 1rem;
-      width: 100%;
-      background: #6366f1;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 0.7rem 1.2rem;
-      font-size: 0.95rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    button.primary:hover:not(:disabled) { background: #4f46e5; }
-    button.primary:disabled { background: #334155; cursor: not-allowed; color: #64748b; }
+/* Topbar */
+#page-title { font-size: 16px; font-weight: 600; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.btn-icon { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+.btn-icon:hover { background: var(--border); color: var(--text); }
+.btn-icon svg { width: 16px; height: 16px; }
 
-    .progress-wrap { margin-top: 1.5rem; display: none; }
-    .progress-label {
-      font-size: 0.8rem;
-      color: #94a3b8;
-      margin-bottom: 0.4rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 0.5rem;
-    }
-    .progress-label-left { flex: 1; min-width: 0; }
-    .progress-timing {
-      font-size: 0.75rem;
-      color: #64748b;
-      white-space: nowrap;
-      text-align: right;
-      flex-shrink: 0;
-    }
-    .progress-timing .eta { color: #818cf8; }
-    progress {
-      width: 100%;
-      height: 6px;
-      border-radius: 3px;
-      appearance: none;
-      background: #0f172a;
-      border: none;
-    }
-    progress::-webkit-progress-bar { background: #0f172a; border-radius: 3px; }
-    progress::-webkit-progress-value { background: #6366f1; border-radius: 3px; transition: width 0.3s; }
-    progress::-moz-progress-bar { background: #6366f1; border-radius: 3px; }
+/* Pages */
+.page { display: none; }
+.page-header { margin-bottom: 24px; }
+.page-header h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.page-header p { color: var(--text-muted); font-size: 13px; }
 
-    .log {
-      margin-top: 1rem;
-      background: #0f172a;
-      border-radius: 6px;
-      padding: 0.8rem;
-      max-height: 220px;
-      overflow-y: auto;
-      font-size: 0.78rem;
-      font-family: ui-monospace, monospace;
-      display: none;
-    }
-    .log li { list-style: none; padding: 0.15rem 0; color: #94a3b8; border-bottom: 1px solid #1e293b; }
-    .log li:last-child { border: none; }
-    .log .ok    { color: #34d399; }
-    .log .phase { color: #818cf8; font-weight: 600; }
-    .log .err   { color: #f87171; }
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: background 0.15s, opacity 0.15s; text-decoration: none; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover:not(:disabled) { background: var(--border); }
+.btn-danger { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+.btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.25); }
+.btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+.btn-xs { padding: 3px 8px; font-size: 11px; border-radius: 5px; }
 
-    .result {
-      margin-top: 1rem;
-      padding: 0.75rem 1rem;
-      border-radius: 6px;
-      font-size: 0.85rem;
-      display: none;
-    }
-    .result.success { background: #052e16; color: #4ade80; border: 1px solid #166534; }
-    .result.error   { background: #2d0808; color: #f87171; border: 1px solid #7f1d1d; }
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; display: flex; align-items: center; gap: 14px; }
+.stat-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-icon svg { width: 20px; height: 20px; }
+.stat-icon.blue { background: rgba(59,130,246,0.15); color: var(--blue); }
+.stat-icon.yellow { background: rgba(234,179,8,0.15); color: var(--yellow); }
+.stat-icon.purple { background: rgba(168,85,247,0.15); color: var(--purple); }
+.stat-icon.green { background: rgba(34,197,94,0.15); color: var(--green); }
+.stat-value { font-size: 24px; font-weight: 700; line-height: 1; }
+.stat-label { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
 
-    .entities-panel {
-      margin-top: 1rem;
-      display: none;
-    }
-    .entities-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 0.6rem;
-    }
-    .entities-panel h3 {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: #94a3b8;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    .entities-hint {
-      font-size: 0.75rem;
-      color: #64748b;
-    }
-    .entity-group { margin-bottom: 0.8rem; }
-    .entity-group-label {
-      font-size: 0.72rem;
-      color: #64748b;
-      margin-bottom: 0.35rem;
-    }
-    .entity-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.35rem;
-    }
-    .tag {
-      display: inline-block;
-      padding: 0.2rem 0.55rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 500;
-    }
-    .confidence-low    { color: #f87171; }
-    .confidence-medium { color: #fbbf24; }
-    .confidence-high   { color: #34d399; }
-    .tag-entity { background: #1e1b4b; color: #a5b4fc; border: 1px solid #3730a3; }
-    .tag-email  { background: #1c1917; color: #fb923c; border: 1px solid #78350f; }
-    .tag-none   { color: #475569; font-style: italic; font-size: 0.78rem; }
-    .tag-remove {
-      margin-left: 0.3rem;
-      opacity: 0.5;
-      cursor: pointer;
-      font-style: normal;
-      font-size: 0.7rem;
-      line-height: 1;
-    }
-    .tag-remove:hover { opacity: 1; }
-    button.confirm-btn {
-      margin-top: 0.8rem;
-      width: 100%;
-      background: #16a34a;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 0.6rem 1.2rem;
-      font-size: 0.9rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    button.confirm-btn:hover { background: #15803d; }
-    .action-row {
-      margin-top: 1rem;
-      display: none;
-      gap: 0.5rem;
-    }
-    .action-row button {
-      margin-top: 0;
-      flex: 1;
-    }
-    button.secondary {
-      background: #334155;
-      color: #e2e8f0;
-    }
-    button.secondary:hover { background: #475569; }
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+thead th { padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--surface2); }
+.table-empty { text-align: center; padding: 40px 0; color: var(--text-muted); }
 
-    .model-row {
-      margin-top: 0.75rem;
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-    }
-    .model-row label { font-size: 0.8rem; color: #64748b; white-space: nowrap; }
-    .model-row select {
-      flex: 1;
-      background: #0f172a;
-      color: #e2e8f0;
-      border: 1px solid #334155;
-      border-radius: 6px;
-      padding: 0.4rem 0.6rem;
-      font-size: 0.85rem;
-      cursor: pointer;
-    }
-    .model-row select:focus { outline: none; border-color: #6366f1; }
-  </style>
+/* Badges */
+.badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge-queued { background: rgba(100,116,139,0.2); color: #94a3b8; }
+.badge-extracting, .badge-scoring { background: rgba(59,130,246,0.15); color: var(--blue); }
+.badge-awaiting_review { background: rgba(234,179,8,0.15); color: var(--yellow); }
+.badge-mapping, .badge-applying { background: rgba(168,85,247,0.15); color: var(--purple); }
+.badge-done { background: rgba(34,197,94,0.15); color: var(--green); }
+.badge-error { background: rgba(239,68,68,0.15); color: var(--red); }
+.badge-cancelled { background: rgba(100,116,139,0.15); color: var(--text-dim); }
+
+/* Progress */
+.progress-wrap { display: flex; align-items: center; gap: 8px; min-width: 140px; }
+.progress-bar { flex: 1; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+.progress-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+/* Upload */
+.dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 48px 24px; text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.dropzone:hover, .dropzone.drag-over { border-color: var(--accent); background: var(--accent-muted); }
+.dropzone svg { width: 40px; height: 40px; color: var(--text-dim); margin-bottom: 12px; }
+.dropzone .dz-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.dropzone .dz-sub { font-size: 13px; color: var(--text-muted); }
+#file-list { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.file-item { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+.file-item-name { font-size: 13px; font-weight: 500; }
+.file-item-size { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+
+/* Form */
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.form-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; transition: border-color 0.15s; }
+.form-input:focus { border-color: var(--accent); }
+.form-select { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; cursor: pointer; }
+.form-select.full { width: 100%; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.tab-btn { padding: 9px 16px; font-size: 13px; font-weight: 500; color: var(--text-muted); cursor: pointer; border: none; background: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s, border-color 0.15s; }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover:not(.active) { color: var(--text); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Edit input in table */
+.edit-input { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--text); font-size: 13px; width: 100%; min-width: 120px; outline: none; }
+.edit-input:focus { border-color: var(--accent); }
+
+/* Alerts */
+.alert { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+.alert-error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+.alert-info { background: var(--accent-muted); border: 1px solid rgba(99,102,241,0.3); color: var(--accent-hover); }
+.alert-success { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
+
+/* Settings */
+.settings-section { margin-bottom: 16px; }
+.settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.cache-stats { display: flex; gap: 24px; padding: 14px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+.cache-stat-value { font-size: 22px; font-weight: 700; }
+.cache-stat-label { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+
+/* Review phase dots */
+.phase-list { display: flex; flex-direction: column; gap: 12px; }
+.phase-item { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.phase-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; transition: background 0.3s; }
+.phase-dot.active { background: var(--accent); }
+.phase-dot.done { background: var(--green); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+@media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
 </head>
 <body>
-<div class="card">
-  <h1>CSV PII Sanitiser</h1>
-  <p class="subtitle">Replaces names, email addresses, and company references using Ollama (gemma4:latest)</p>
+<div id="app">
 
-  <input type="file" id="fileInput" accept=".csv" />
-
-  <div class="dropzone" id="dropzone">
-    <div class="dropzone-icon">📂</div>
-    <div class="dropzone-label">
-      <strong>Click to browse</strong> or drag &amp; drop a CSV file
-    </div>
-    <div class="dropzone-filename" id="dropzoneFilename"></div>
-  </div>
-
-  <div class="model-row">
-    <label for="modelSelect">Model</label>
-    <select id="modelSelect">
-      <option value="">Loading models…</option>
-    </select>
-  </div>
-
-  <div style="display:flex;gap:0.5rem;margin-top:1rem">
-    <button class="primary" id="startBtn" style="margin-top:0;flex:1" disabled>Sanitise File</button>
-    <button class="secondary" id="cancelBtn" style="margin-top:0;display:none;width:auto;padding:0.7rem 1rem">✕ Cancel</button>
-  </div>
-
-  <div class="progress-wrap" id="progressWrap">
-    <div class="progress-label">
-      <div class="progress-label-left">
-        <div id="phaseLabel">Processing…</div>
-        <div id="rowLabel" style="color:#64748b;font-size:0.75rem;margin-top:0.15rem"></div>
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
       </div>
-      <div class="progress-timing" id="timingLabel"></div>
+      <div class="logo-title">CSV PII</div>
+      <div class="logo-sub">Sanitiser</div>
     </div>
-    <progress id="progressBar" value="0" max="100"></progress>
-  </div>
+    <nav class="sidebar-nav">
+      <div class="nav-link active" data-page="upload" onclick="navigate('upload')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+        Upload
+      </div>
+      <div class="nav-link" data-page="queue" onclick="navigate('queue')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Queue
+      </div>
+      <div class="nav-link" data-page="review" onclick="navigate('review')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Review
+        <span id="review-badge" class="nav-badge">0</span>
+      </div>
+      <div class="nav-link" data-page="completed" onclick="navigate('completed')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        Completed
+      </div>
+      <div class="nav-link" data-page="settings" onclick="navigate('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </div>
+    </nav>
+    <div class="sidebar-footer">v0.4</div>
+  </aside>
 
-  <ul class="log" id="log"></ul>
+  <!-- Main -->
+  <div id="main">
+    <header id="topbar">
+      <span id="page-title">Upload Files</span>
+      <div class="topbar-right">
+        <button class="btn-icon" onclick="toggleTheme()" title="Toggle light/dark mode">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </header>
+    <div id="content">
 
-  <div class="entities-panel" id="entitiesPanel">
-    <div class="entities-header">
-      <h3>Detected PII</h3>
-      <span class="entities-hint" id="entitiesHint"></span>
-    </div>
-    <!-- Shown during extraction, replaced by confidence groups after scoring -->
-    <div class="entity-group" id="entityGroupUnscored">
-      <div class="entity-group-label">Names &amp; organisations</div>
-      <div class="entity-tags" id="entityTags"></div>
-    </div>
-    <!-- Confidence groups — shown after scoring -->
-    <div class="entity-group" id="groupLow" style="display:none">
-      <div class="entity-group-label confidence-low">⚠ Low confidence — review carefully</div>
-      <div class="entity-tags" id="tagsLow"></div>
-    </div>
-    <div class="entity-group" id="groupMedium" style="display:none">
-      <div class="entity-group-label confidence-medium">~ Medium confidence</div>
-      <div class="entity-tags" id="tagsMedium"></div>
-    </div>
-    <div class="entity-group" id="groupHigh" style="display:none">
-      <div class="entity-group-label confidence-high">✓ High confidence</div>
-      <div class="entity-tags" id="tagsHigh"></div>
-    </div>
-    <div class="entity-group" id="emailGroup">
-      <div class="entity-group-label">Email addresses</div>
-      <div class="entity-tags" id="emailTags"></div>
-    </div>
-    <button class="confirm-btn" id="confirmBtn" style="display:none">
-      Confirm &amp; Continue →
-    </button>
-  </div>
+      <!-- ===== UPLOAD PAGE ===== -->
+      <section id="page-upload" class="page">
+        <div class="page-header">
+          <h1>Upload Files</h1>
+          <p>Select one or more CSV files to add to the processing queue.</p>
+        </div>
+        <div class="card" style="max-width:620px">
+          <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+            <input type="file" id="file-input" accept=".csv" multiple style="display:none" onchange="onFilesSelected(this.files)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div class="dz-title">Drop CSV files here or click to browse</div>
+            <div class="dz-sub">Multiple files supported &middot; .csv only</div>
+          </div>
+          <div id="file-list"></div>
+          <div style="margin-top:18px" class="form-group">
+            <label class="form-label">Model</label>
+            <select id="model-select" class="form-select full">
+              <option value="">Loading models...</option>
+            </select>
+          </div>
+          <div id="upload-error" class="alert alert-error" style="display:none"></div>
+          <button class="btn btn-primary" id="add-to-queue-btn" onclick="addToQueue()" disabled style="width:100%;margin-top:4px;justify-content:center">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add to Queue
+          </button>
+        </div>
+      </section>
 
-  <div class="action-row" id="actionRow">
-    <button class="primary" id="downloadBtn">⬇ Download</button>
-    <button class="secondary" id="rerunBtn">↺ Re-run mapping</button>
-  </div>
+      <!-- ===== QUEUE PAGE ===== -->
+      <section id="page-queue" class="page">
+        <div class="page-header">
+          <h1>Processing Queue</h1>
+          <p>Jobs run one at a time. Multiple files can await review simultaneously.</p>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+            <div><div class="stat-value" id="stat-queued">0</div><div class="stat-label">Queued</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></div>
+            <div><div class="stat-value" id="stat-running">0</div><div class="stat-label">Running</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon yellow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
+            <div><div class="stat-value" id="stat-review">0</div><div class="stat-label">Awaiting Review</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div><div class="stat-value" id="stat-done">0</div><div class="stat-label">Completed</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Filename</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th>Queued At</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="queue-tbody">
+                <tr><td colspan="5" class="table-empty">No jobs yet. Upload a CSV file to get started.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
-  <div class="result" id="result"></div>
-</div>
+      <!-- ===== REVIEW PAGE ===== -->
+      <section id="page-review" class="page">
+        <div class="page-header">
+          <h1>Review Entities</h1>
+          <p>Check detected names and emails, edit replacements if needed, then approve to apply.</p>
+        </div>
+        <div id="review-no-jobs" class="alert alert-info" style="display:none">
+          No files are currently awaiting review. They will appear here once entity extraction completes.
+        </div>
+        <div id="review-content" style="display:none">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+            <span style="font-size:13px;color:var(--text-muted);font-weight:500">File:</span>
+            <select id="review-job-select" class="form-select" style="min-width:280px" onchange="loadReviewJob(this.value)"></select>
+          </div>
+          <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('names')">Names <span id="tab-count-names" style="color:var(--text-dim);font-weight:400"></span></button>
+            <button class="tab-btn" onclick="switchTab('emails')">Emails <span id="tab-count-emails" style="color:var(--text-dim);font-weight:400"></span></button>
+          </div>
+          <div id="tab-names" class="tab-panel active">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Original</th><th>Replacement</th><th>Confidence</th><th>Frequency</th><th>Actions</th></tr></thead>
+                <tbody id="review-names-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="tab-emails" class="tab-panel">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Original Email</th><th>Replacement</th><th>Frequency</th><th>Actions</th></tr></thead>
+                <tbody id="review-emails-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div style="margin-top:20px;display:flex;align-items:center;gap:12px">
+            <button class="btn btn-primary" id="approve-btn" onclick="approveJob()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              Approve &amp; Apply
+            </button>
+            <span id="approve-msg" style="font-size:12px;color:var(--text-muted)"></span>
+          </div>
+        </div>
+        <div id="review-progress" style="display:none" class="card">
+          <h3 style="font-size:15px;font-weight:600;margin-bottom:20px">Applying Sanitisation</h3>
+          <div class="phase-list">
+            <div class="phase-item"><div class="phase-dot" id="dot-mapping"></div><span>Generating replacement names</span></div>
+            <div class="phase-item"><div class="phase-dot" id="dot-applying"></div><span>Applying replacements to rows</span></div>
+            <div class="phase-item"><div class="phase-dot" id="dot-writing"></div><span>Writing output file</span></div>
+          </div>
+          <div id="review-done-msg" style="display:none;margin-top:20px" class="alert alert-success">
+            Done! <a href="#completed" onclick="navigate('completed')" style="color:inherit;font-weight:600;text-decoration:underline">Go to Completed</a> to download your file.
+          </div>
+          <div id="review-error-msg" style="display:none;margin-top:20px" class="alert alert-error"></div>
+        </div>
+      </section>
+
+      <!-- ===== COMPLETED PAGE ===== -->
+      <section id="page-completed" class="page">
+        <div class="page-header">
+          <h1>Completed Files</h1>
+          <p>Sanitised files ready to download.</p>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Filename</th>
+                  <th>Entities Replaced</th>
+                  <th>Processing Time</th>
+                  <th>Completed At</th>
+                  <th>Download</th>
+                </tr>
+              </thead>
+              <tbody id="completed-tbody">
+                <tr><td colspan="5" class="table-empty">No completed files yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SETTINGS PAGE ===== -->
+      <section id="page-settings" class="page">
+        <div class="page-header">
+          <h1>Settings</h1>
+          <p>Configure Ollama connection. Settings are saved in your browser.</p>
+        </div>
+        <div style="max-width:520px;display:flex;flex-direction:column;gap:16px">
+          <div class="card settings-section">
+            <h3>Ollama Connection</h3>
+            <div class="form-group">
+              <label class="form-label">Base URL</label>
+              <input type="text" id="ollama-base-url" class="form-input" placeholder="http://localhost:11434" oninput="saveSettings()">
+            </div>
+            <div class="form-group" style="margin-bottom:12px">
+              <label class="form-label">Default Model</label>
+              <select id="settings-model-select" class="form-select full" onchange="saveSettings()">
+                <option value="">Loading...</option>
+              </select>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="refreshSettingsModels()">Refresh Models</button>
+          </div>
+          <div class="card settings-section">
+            <h3>Entity Cache</h3>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+              After Ollama processes a text chunk, the result is cached. If the same chunk appears in a future file, the LLM call is skipped entirely — significantly reducing processing time for similar files.
+            </p>
+            <div class="cache-stats">
+              <div><div class="cache-stat-value" id="cs-size">—</div><div class="cache-stat-label">Cached chunks</div></div>
+              <div><div class="cache-stat-value" id="cs-hits">—</div><div class="cache-stat-label">Cache hits</div></div>
+              <div><div class="cache-stat-value" id="cs-misses">—</div><div class="cache-stat-label">Cache misses</div></div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-secondary btn-sm" onclick="loadCacheStats()">Refresh Stats</button>
+              <button class="btn btn-danger btn-sm" onclick="clearCache()">Clear Cache</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
 
 <script>
-  const fileInput    = document.getElementById('fileInput');
-  const dropzone     = document.getElementById('dropzone');
-  const dropzoneName = document.getElementById('dropzoneFilename');
-  const startBtn     = document.getElementById('startBtn');
-  const progressWrap = document.getElementById('progressWrap');
-  const progressBar  = document.getElementById('progressBar');
-  const phaseLabel   = document.getElementById('phaseLabel');
-  const rowLabel     = document.getElementById('rowLabel');
-  const timingLabel  = document.getElementById('timingLabel');
-  const logEl        = document.getElementById('log');
-  const resultEl     = document.getElementById('result');
-  const entitiesPanel       = document.getElementById('entitiesPanel');
-  const entitiesHint        = document.getElementById('entitiesHint');
-  const entityGroupUnscored = document.getElementById('entityGroupUnscored');
-  const entityTags          = document.getElementById('entityTags');
-  const groupLow            = document.getElementById('groupLow');
-  const groupMedium         = document.getElementById('groupMedium');
-  const groupHigh           = document.getElementById('groupHigh');
-  const tagsLow             = document.getElementById('tagsLow');
-  const tagsMedium          = document.getElementById('tagsMedium');
-  const tagsHigh            = document.getElementById('tagsHigh');
-  const emailTags           = document.getElementById('emailTags');
-  const confirmBtn          = document.getElementById('confirmBtn');
-  const cancelBtn    = document.getElementById('cancelBtn');
-  const modelSelect  = document.getElementById('modelSelect');
-  const actionRow    = document.getElementById('actionRow');
-  const downloadBtn  = document.getElementById('downloadBtn');
-  const rerunBtn     = document.getElementById('rerunBtn');
+// ===== STATE =====
+const PAGES = ['upload','queue','review','completed','settings'];
+let activePage = '';
+const pageIntervals = {};
+let selectedFiles = [];
+let reviewJobId = null;
+let reviewRowsData = [];
+let emailRowsData = [];
+let activeTab = 'names';
+let reviewSSE = null;
 
-  let currentJobId = null;
-  let reviewMode = false;
-  let selectedFile = null;
+// ===== NAVIGATION =====
+const PAGE_TITLES = {
+  upload: 'Upload Files', queue: 'Processing Queue',
+  review: 'Review Entities', completed: 'Completed Files', settings: 'Settings'
+};
 
-  // ── Timing ───────────────────────────────────────────
-  let jobStartTime = null;
-  let timerInterval = null;
-  // For ETA: track batch completions with timestamps
-  let batchTimes = [];   // timestamps (ms) when each batch completed
-  let lastEtaAt = null;  // { eta: seconds, recordedAt: ms } — persists between ticks
-  let currentPhase = null;
+function navigate(page) {
+  if (!PAGES.includes(page)) page = 'upload';
+  PAGES.forEach(p => {
+    document.getElementById('page-' + p).style.display = p === page ? 'block' : 'none';
+  });
+  document.querySelectorAll('.nav-link').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  if (activePage && activePage !== page) onPageLeave(activePage);
+  activePage = page;
+  if (history.replaceState) history.replaceState(null, '', '#' + page);
+  document.getElementById('page-title').textContent = PAGE_TITLES[page] || page;
+  onPageEnter(page);
+}
 
-  function startTimer() {
-    jobStartTime = Date.now();
-    batchTimes = [];
-    lastEtaAt = null;
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(updateTimingLabel, 1000);
+function onPageEnter(page) {
+  if (page === 'upload') loadModels();
+  if (page === 'queue') {
+    refreshQueue();
+    pageIntervals.queue = setInterval(refreshQueue, 2000);
+  }
+  if (page === 'review') loadReviewPage();
+  if (page === 'completed') loadCompletedPage();
+  if (page === 'settings') loadSettingsPage();
+}
+
+function onPageLeave(page) {
+  if (pageIntervals[page]) { clearInterval(pageIntervals[page]); delete pageIntervals[page]; }
+  if (page === 'review' && reviewSSE) { reviewSSE.close(); reviewSSE = null; }
+}
+
+window.addEventListener('hashchange', () => navigate(location.hash.slice(1) || 'upload'));
+document.addEventListener('DOMContentLoaded', () => navigate(location.hash.slice(1) || 'upload'));
+
+// ===== THEME =====
+function toggleTheme() {
+  document.body.classList.toggle('light');
+  localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
+}
+if (localStorage.getItem('theme') === 'light') document.body.classList.add('light');
+
+// ===== SETTINGS =====
+function getOllamaBaseUrl() {
+  return localStorage.getItem('ollamaBaseUrl') || 'http://localhost:11434';
+}
+function getDefaultModel() {
+  return localStorage.getItem('defaultModel') || '';
+}
+function saveSettings() {
+  const url = (document.getElementById('ollama-base-url').value || '').trim();
+  const model = document.getElementById('settings-model-select').value;
+  if (url) localStorage.setItem('ollamaBaseUrl', url);
+  if (model) localStorage.setItem('defaultModel', model);
+}
+
+// ===== MODELS =====
+async function loadModels() {
+  const sel = document.getElementById('model-select');
+  try {
+    const r = await fetch('/api/models?baseUrl=' + encodeURIComponent(getOllamaBaseUrl()));
+    const data = await r.json();
+    const models = data.models || [];
+    const def = getDefaultModel() || data.default || '';
+    sel.innerHTML = models.length
+      ? models.map(m => `<option value="${esc(m)}"${m === def ? ' selected' : ''}>${esc(m)}</option>`).join('')
+      : '<option value="">No models found — is Ollama running?</option>';
+  } catch {
+    sel.innerHTML = '<option value="">Could not load models</option>';
+  }
+}
+
+async function refreshSettingsModels() {
+  const sel = document.getElementById('settings-model-select');
+  sel.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const r = await fetch('/api/models?baseUrl=' + encodeURIComponent(getOllamaBaseUrl()));
+    const data = await r.json();
+    const models = data.models || [];
+    const def = getDefaultModel() || data.default || '';
+    sel.innerHTML = models.length
+      ? models.map(m => `<option value="${esc(m)}"${m === def ? ' selected' : ''}>${esc(m)}</option>`).join('')
+      : '<option value="">No models found</option>';
+  } catch {
+    sel.innerHTML = '<option value="">Could not load models</option>';
+  }
+}
+
+// ===== UPLOAD =====
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-over');
+  const files = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.csv'));
+  if (files.length) onFilesSelected(files);
+});
+
+function onFilesSelected(files) {
+  for (const f of files) {
+    if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) selectedFiles.push(f);
+  }
+  renderFileList();
+  document.getElementById('add-to-queue-btn').disabled = selectedFiles.length === 0;
+  document.getElementById('file-input').value = '';
+}
+
+function removeFile(idx) {
+  selectedFiles.splice(idx, 1);
+  renderFileList();
+  document.getElementById('add-to-queue-btn').disabled = selectedFiles.length === 0;
+}
+
+function renderFileList() {
+  const el = document.getElementById('file-list');
+  if (!selectedFiles.length) { el.innerHTML = ''; return; }
+  el.innerHTML = selectedFiles.map((f, i) => `
+    <div class="file-item">
+      <div>
+        <div class="file-item-name">${esc(f.name)}</div>
+        <div class="file-item-size">${formatBytes(f.size)}</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="removeFile(${i})">Remove</button>
+    </div>`).join('');
+}
+
+async function addToQueue() {
+  const errEl = document.getElementById('upload-error');
+  errEl.style.display = 'none';
+  if (!selectedFiles.length) return;
+  const model = document.getElementById('model-select').value;
+  const fd = new FormData();
+  for (const f of selectedFiles) fd.append('files', f);
+  if (model) fd.append('model', model);
+  fd.append('ollamaBaseUrl', getOllamaBaseUrl());
+  try {
+    const r = await fetch('/api/queue/add', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Upload failed');
+    selectedFiles = [];
+    renderFileList();
+    document.getElementById('add-to-queue-btn').disabled = true;
+    navigate('queue');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+  }
+}
+
+// ===== QUEUE =====
+async function refreshQueue() {
+  try {
+    const r = await fetch('/api/queue');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderQueue(data.jobs || []);
+  } catch {}
+}
+
+function renderQueue(jobs) {
+  let queued = 0, running = 0, review = 0, done = 0;
+  for (const j of jobs) {
+    if (j.status === 'queued') queued++;
+    else if (['extracting','scoring','mapping','applying'].includes(j.status)) running++;
+    else if (j.status === 'awaiting_review') review++;
+    else if (j.status === 'done') done++;
+  }
+  document.getElementById('stat-queued').textContent = queued;
+  document.getElementById('stat-running').textContent = running;
+  document.getElementById('stat-review').textContent = review;
+  document.getElementById('stat-done').textContent = done;
+
+  const badge = document.getElementById('review-badge');
+  badge.textContent = review;
+  badge.classList.toggle('visible', review > 0);
+
+  const tbody = document.getElementById('queue-tbody');
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="table-empty">No jobs yet. Upload a CSV file to get started.</td></tr>';
+    return;
   }
 
-  function stopTimer() {
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-  }
-
-  function fmtSeconds(s) {
-    s = Math.round(s);
-    if (s < 60) return s + 's';
-    const m = Math.floor(s / 60), sec = s % 60;
-    return m + 'm ' + sec + 's';
-  }
-
-  function updateTimingLabel(eta) {
-    if (!jobStartTime) return;
-    const elapsed = (Date.now() - jobStartTime) / 1000;
-    // If a new eta was provided, record it with the current timestamp
-    if (eta != null) {
-      lastEtaAt = { eta, recordedAt: Date.now() };
-    }
-    let html = '<span>Elapsed: ' + fmtSeconds(elapsed) + '</span>';
-    if (lastEtaAt != null) {
-      // Count down from the recorded estimate as time passes
-      const ageSeconds = (Date.now() - lastEtaAt.recordedAt) / 1000;
-      const remaining = lastEtaAt.eta - ageSeconds;
-      if (remaining > 0) {
-        html += '<br><span class="eta">~' + fmtSeconds(remaining) + ' remaining</span>';
-      }
-    }
-    timingLabel.innerHTML = html;
-  }
-
-  function recordBatchDone(batchNum, totalBatches) {
-    const now = Date.now();
-    batchTimes.push({ batch: batchNum, t: now });
-    // Estimate rate from last few completions
-    if (batchTimes.length >= 2) {
-      const window = batchTimes.slice(-5);
-      const rate = (window.length - 1) / ((window[window.length-1].t - window[0].t) / 1000); // batches/sec
-      if (rate > 0) {
-        const remaining = totalBatches - batchNum;
-        const eta = remaining / rate;
-        updateTimingLabel(eta);
-        return;
-      }
-    }
-    updateTimingLabel(null);
-  }
-
-  // ── Load models ──────────────────────────────────────
-  (async () => {
-    try {
-      const res = await fetch('/api/models');
-      const data = await res.json();
-      modelSelect.innerHTML = '';
-      if (data.models.length === 0) {
-        modelSelect.innerHTML = '<option value="">No models found</option>';
-        return;
-      }
-      data.models.forEach(name => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        if (name === data.default) opt.selected = true;
-        modelSelect.appendChild(opt);
-      });
-    } catch {
-      modelSelect.innerHTML = '<option value="">Could not load models</option>';
-    }
-  })();
-
-  // ── File selection ────────────────────────────────────
-  dropzone.addEventListener('click', () => fileInput.click());
-
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  const order = s => ({ extracting:0, scoring:0, mapping:0, applying:0, queued:1, awaiting_review:2, done:3, error:3, cancelled:4 }[s] ?? 5);
+  const sorted = [...jobs].sort((a, b) => {
+    const d = order(a.status) - order(b.status);
+    if (d !== 0) return d;
+    if (a.status === 'queued' && b.status === 'queued') return a.queuePosition - b.queuePosition;
+    return b.createdAt - a.createdAt;
   });
 
-  dropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropzone.classList.add('drag-over');
-  });
-  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-  dropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropzone.classList.remove('drag-over');
-    const f = e.dataTransfer.files[0];
-    if (f && f.name.toLowerCase().endsWith('.csv')) setFile(f);
-  });
+  tbody.innerHTML = sorted.map(j => {
+    const badge = `<span class="badge badge-${j.status}">${j.status.replace('_', ' ')}</span>`;
+    const prog = renderJobProgress(j);
+    const acts = renderJobActions(j);
+    return `<tr>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(j.originalFilename)}">${esc(j.originalFilename)}</td>
+      <td>${badge}</td>
+      <td>${prog}</td>
+      <td style="color:var(--text-muted);white-space:nowrap">${new Date(j.createdAt).toLocaleTimeString()}</td>
+      <td>${acts}</td>
+    </tr>`;
+  }).join('');
+}
 
-  function setFile(f) {
-    selectedFile = f;
-    dropzone.classList.add('has-file');
-    dropzone.querySelector('.dropzone-icon').textContent = '✅';
-    dropzoneName.textContent = f.name;
-    startBtn.disabled = false;
+function renderJobProgress(j) {
+  const active = ['extracting','scoring','mapping','applying'].includes(j.status);
+  if (active && j.phaseProgress && j.phaseProgress.total > 0) {
+    const pct = Math.round(j.phaseProgress.current / j.phaseProgress.total * 100);
+    return `<div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+      <span class="progress-label">${j.currentPhase || ''} ${pct}%</span>
+    </div>`;
   }
+  if (active) return `<span style="font-size:12px;color:var(--text-muted)">${j.currentPhase || 'Processing...'}</span>`;
+  if (j.status === 'done' && j.elapsedMs) return `<span style="font-size:12px;color:var(--text-muted)">${formatMs(j.elapsedMs)}</span>`;
+  if (j.status === 'error') return `<span style="font-size:12px;color:var(--red)" title="${esc(j.errorMessage||'')}">⚠ ${esc((j.errorMessage||'Error').slice(0,40))}</span>`;
+  return '';
+}
 
-  // ── Entity tag helpers ───────────────────────────────
-  function makeEntityTag(text, removable) {
-    const tag = document.createElement('span');
-    tag.className = 'tag tag-entity';
-    tag.dataset.entity = text;
-    tag.appendChild(document.createTextNode(text));
-    if (removable) addRemoveButton(tag);
-    return tag;
+function renderJobActions(j) {
+  const parts = [];
+  if (j.status === 'queued') {
+    parts.push(`<button class="btn btn-secondary btn-xs" onclick="reorder('${j.jobId}','up')" title="Move up">↑</button>`);
+    parts.push(`<button class="btn btn-secondary btn-xs" onclick="reorder('${j.jobId}','down')" title="Move down">↓</button>`);
+    parts.push(`<button class="btn btn-danger btn-xs" onclick="cancelJob('${j.jobId}')">Cancel</button>`);
+  } else if (['extracting','scoring','mapping','applying'].includes(j.status)) {
+    parts.push(`<button class="btn btn-danger btn-xs" onclick="cancelJob('${j.jobId}')">Cancel</button>`);
+  } else if (j.status === 'awaiting_review') {
+    parts.push(`<button class="btn btn-primary btn-xs" onclick="navigate('review')">Review</button>`);
+  } else if (j.status === 'done') {
+    parts.push(`<a href="/api/download/${j.jobId}" class="btn btn-secondary btn-xs" download>Download</a>`);
   }
+  return `<div style="display:flex;gap:4px;flex-wrap:wrap">${parts.join('')}</div>`;
+}
 
-  function addRemoveButton(tag) {
-    const btn = document.createElement('span');
-    btn.className = 'tag-remove';
-    btn.title = 'Remove';
-    btn.textContent = '×';
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      tag.remove();
+async function reorder(jobId, dir) {
+  try {
+    await fetch('/api/queue/reorder', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId, direction: dir })
     });
-    tag.appendChild(btn);
-  }
+    refreshQueue();
+  } catch {}
+}
 
-  // ── Confirm button ────────────────────────────────────
-  confirmBtn.addEventListener('click', async () => {
-    // Collect from all confidence groups (and fallback unscored container)
-    const allTagContainers = [tagsLow, tagsMedium, tagsHigh, entityTags];
-    const entities = allTagContainers.flatMap(c =>
-      Array.from(c.querySelectorAll('.tag-entity')).map(tag => tag.dataset.entity)
-    ).filter(Boolean);
+async function cancelJob(jobId) {
+  try {
+    await fetch('/api/jobs/' + jobId, { method: 'DELETE' });
+    refreshQueue();
+  } catch {}
+}
 
-    const isRemap = confirmBtn.textContent.includes('Re-run');
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Processing…';
-    entitiesHint.textContent = '';
-    reviewMode = false;
+// ===== REVIEW =====
+async function loadReviewPage() {
+  if (reviewSSE) { reviewSSE.close(); reviewSSE = null; }
+  document.getElementById('review-progress').style.display = 'none';
+  document.getElementById('review-no-jobs').style.display = 'none';
+  document.getElementById('review-content').style.display = 'none';
+  document.getElementById('approve-btn').disabled = false;
 
-    // Remove × buttons now that review is done
-    entityTags.querySelectorAll('.tag-remove').forEach(btn => btn.remove());
-    const endpoint = isRemap
-      ? `/api/jobs/${currentJobId}/remap`
-      : `/api/jobs/${currentJobId}/confirm`;
-
-    await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entities }),
-    });
-
-    confirmBtn.style.display = 'none';
-    confirmBtn.disabled = false;
-    confirmBtn.textContent = 'Confirm & Continue →';
-
-    // For re-run, reset progress UI and open a fresh SSE stream
-    if (isRemap) {
-      progressBar.value = 0;
-      rowLabel.textContent = '';
-      timingLabel.textContent = '';
-      phaseLabel.textContent = 'Processing…';
-      progressWrap.style.display = 'block';
-      logEl.style.display = 'block';
-      startBtn.disabled = true;
-      cancelBtn.style.display = 'block';
-      dropzone.style.pointerEvents = 'none';
-      startTimer();
-      openSSE(currentJobId);
-    }
-  });
-
-  // ── Download ─────────────────────────────────────────
-  downloadBtn.addEventListener('click', () => {
-    triggerDownload('/api/download/' + currentJobId);
-  });
-
-  // ── Re-run mapping ───────────────────────────────────
-  rerunBtn.addEventListener('click', () => {
-    actionRow.style.display = 'none';
-    resultEl.style.display = 'none';
-    reviewMode = true;
-    entitiesHint.textContent = 'Click × to remove incorrect entries';
-    // Re-add remove buttons to entity tags
-    entityTags.querySelectorAll('.tag-entity').forEach(tag => {
-      if (!tag.querySelector('.tag-remove')) addRemoveButton(tag);
-    });
-    confirmBtn.textContent = 'Confirm & Re-run →';
-    confirmBtn.style.display = 'block';
-    logEl.innerHTML = '';
-  });
-
-  // ── Sanitisation ──────────────────────────────────────
-  const phaseLabels = {
-    reading:    '📖 Reading CSV file…',
-    extracting: '🔍 Extracting unique PII values…',
-    scoring:    '🧠 Scoring entity confidence…',
-    mapping:    '🤖 Generating fake replacements via Ollama…',
-    applying:   '✏️ Applying replacements…',
-    writing:    '💾 Writing sanitised file…',
-  };
-
-  function addLog(text, cls = '') {
-    const li = document.createElement('li');
-    if (cls) li.className = cls;
-    li.textContent = text;
-    logEl.appendChild(li);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-
-  startBtn.addEventListener('click', async () => {
-    if (!selectedFile) return;
-
-    // Reset UI
-    logEl.innerHTML = '';
-    resultEl.style.display = 'none';
-    resultEl.className = 'result';
-    entitiesPanel.style.display = 'none';
-    entityTags.innerHTML = '';
-    tagsLow.innerHTML = '';
-    tagsMedium.innerHTML = '';
-    tagsHigh.innerHTML = '';
-    entityGroupUnscored.style.display = 'block';
-    groupLow.style.display = 'none';
-    groupMedium.style.display = 'none';
-    groupHigh.style.display = 'none';
-    emailTags.innerHTML = '';
-    confirmBtn.style.display = 'none';
-    entitiesHint.textContent = '';
-    reviewMode = false;
-    actionRow.style.display = 'none';
-    progressBar.value = 0;
-    rowLabel.textContent = '';
-    timingLabel.textContent = '';
-    phaseLabel.textContent = 'Uploading…';
-    progressWrap.style.display = 'block';
-    logEl.style.display = 'block';
-    startBtn.disabled = true;
-    cancelBtn.style.display = 'block';
-    dropzone.style.pointerEvents = 'none';
-
-    // Upload file
-    const form = new FormData();
-    form.append('file', selectedFile);
-    if (modelSelect.value) form.append('model', modelSelect.value);
-
-    let jobId = null;
-    try {
-      const res = await fetch('/api/sanitise', { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to start job');
-      jobId = data.jobId;
-      currentJobId = jobId;
-    } catch (err) {
-      addLog('Error: ' + err.message, 'err');
-      showResult('❌ ' + err.message, 'error');
-      resetControls();
+  try {
+    const r = await fetch('/api/queue?status=awaiting_review');
+    const data = await r.json();
+    const jobs = data.jobs || [];
+    if (!jobs.length) {
+      document.getElementById('review-no-jobs').style.display = 'block';
       return;
     }
+    document.getElementById('review-content').style.display = 'block';
+    const sel = document.getElementById('review-job-select');
+    sel.innerHTML = jobs.map(j => `<option value="${j.jobId}">${esc(j.originalFilename)}</option>`).join('');
+    await loadReviewJob(jobs[0].jobId);
+  } catch (err) {
+    const el = document.getElementById('review-no-jobs');
+    el.textContent = 'Error: ' + err.message;
+    el.style.display = 'block';
+  }
+}
 
-    // Listen for progress
-    startTimer();
-    openSSE(jobId);
-  });
+async function loadReviewJob(jobId) {
+  reviewJobId = jobId;
+  document.getElementById('approve-msg').textContent = '';
+  try {
+    const r = await fetch('/api/jobs/' + jobId + '/review-data');
+    if (!r.ok) { loadReviewPage(); return; }
+    const data = await r.json();
+    reviewRowsData = data.reviewRows || [];
+    emailRowsData = data.emailRows || [];
+    renderReviewTables();
+  } catch (err) {
+    document.getElementById('approve-msg').textContent = 'Error loading: ' + err.message;
+  }
+}
 
-  function openSSE(jobId) {
-    const es = new EventSource('/api/progress/' + jobId);
-    es.onmessage = (e) => {
-      const event = JSON.parse(e.data);
+function renderReviewTables() {
+  const cnt = n => n ? `(${n})` : '';
+  document.getElementById('tab-count-names').textContent = cnt(reviewRowsData.length);
+  document.getElementById('tab-count-emails').textContent = cnt(emailRowsData.length);
 
-      if (event.type === 'started') {
-        addLog(`Found ${event.total} rows — scanning columns: ${event.textColumns.join(', ')}`);
-      } else if (event.type === 'phase') {
-        currentPhase = event.phase;
-        batchTimes = []; lastEtaAt = null; // reset ETA on each new phase
-        phaseLabel.textContent = phaseLabels[event.phase] ?? event.phase;
-        addLog(phaseLabels[event.phase] ?? event.phase, 'phase');
-        if (event.phase === 'extracting') progressBar.value = 2;
-        if (event.phase === 'scoring')    progressBar.value = 50;
-        if (event.phase === 'mapping')    { progressBar.value = 55; rowLabel.textContent = ''; }
-        if (event.phase === 'applying')   progressBar.value = 75;
-        if (event.phase === 'writing')    progressBar.value = 96;
-      } else if (event.type === 'entities_start') {
-        entitiesPanel.style.display = 'block';
-        entityTags.innerHTML = '<span class="tag-none">Scanning…</span>';
-        emailTags.innerHTML = '';
-        if (event.emails.length === 0) {
-          emailTags.innerHTML = '<span class="tag-none">None found</span>';
-        } else {
-          event.emails.forEach(e => {
-            const tag = document.createElement('span');
-            tag.className = 'tag tag-email';
-            tag.textContent = e;
-            emailTags.appendChild(tag);
-          });
-        }
-      } else if (event.type === 'entities_found') {
-        const placeholder = entityTags.querySelector('.tag-none');
-        if (event.entities.length === 0) {
-          if (placeholder) placeholder.textContent = 'None found';
-          return;
-        }
-        if (placeholder) placeholder.remove();
-        event.entities.forEach(e => {
-          entityTags.appendChild(makeEntityTag(e, false));
-        });
-      } else if (event.type === 'entities_scored') {
-        progressBar.value = 55;
-        // Hide the flat unscored group, show the three confidence groups
-        entityGroupUnscored.style.display = 'none';
-        const buckets = { low: tagsLow, medium: tagsMedium, high: tagsHigh };
-        const groups  = { low: groupLow, medium: groupMedium, high: groupHigh };
-        // Build a lookup from the scores
-        const scoreMap = new Map(event.scores.map(s => [s.entity.toLowerCase(), s.confidence]));
-        // Move existing unscored tags into the right bucket (match by data-entity)
-        entityTags.querySelectorAll('.tag-entity').forEach(tag => {
-          const entity = tag.dataset.entity ?? '';
-          const conf = scoreMap.get(entity.toLowerCase()) ?? 'medium';
-          buckets[conf].appendChild(tag);
-        });
-        // Show groups that have entries, in low→medium→high order
-        ['low', 'medium', 'high'].forEach(c => {
-          if (buckets[c].children.length > 0) groups[c].style.display = 'block';
-        });
-      } else if (event.type === 'review') {
-        reviewMode = true;
-        entitiesHint.textContent = 'Click × to remove incorrect entries';
-        // Add remove buttons to all entity tags across all confidence groups
-        [tagsLow, tagsMedium, tagsHigh, entityTags].forEach(container => {
-          container.querySelectorAll('.tag-entity').forEach(tag => {
-            if (!tag.querySelector('.tag-remove')) addRemoveButton(tag);
-          });
-        });
-        confirmBtn.style.display = 'block';
-        addLog('Review detected entities, then click Confirm & Continue', 'phase');
-      } else if (event.type === 'llm_batch') {
-        rowLabel.textContent = `Batch ${event.batch} / ${event.total}`;
-        recordBatchDone(event.batch, event.total);
-        // Progress ranges: extracting = 2–50%, mapping = 55–75%
-        if (currentPhase === 'extracting') {
-          progressBar.value = 2 + Math.round((event.batch / event.total) * 48);
-        } else if (currentPhase === 'mapping') {
-          progressBar.value = 55 + Math.round((event.batch / event.total) * 20);
-        }
-      } else if (event.type === 'row') {
-        rowLabel.textContent = `Row ${event.processed} / ${event.total}`;
-        progressBar.value = 75 + Math.round((event.processed / event.total) * 21);
-        // ETA for applying phase
-        if (batchTimes.length === 0) batchTimes.push({ batch: 0, t: Date.now() });
-        recordBatchDone(event.processed, event.total);
-      } else if (event.type === 'done') {
-        progressBar.value = 100;
-        rowLabel.textContent = '';
-        phaseLabel.textContent = 'Complete';
-        stopTimer();
-        timingLabel.innerHTML = '<span>Total: ' + fmtSeconds(event.elapsed / 1000) + '</span>';
-        addLog(`Done in ${(event.elapsed / 1000).toFixed(1)}s`, 'ok');
-        showResult('✅ Sanitisation complete. Download your file below.', 'success');
-        actionRow.style.display = 'flex';
-        resetControls();
-        es.close();
-      } else if (event.type === 'cancelled') {
-        progressBar.value = 0;
-        phaseLabel.textContent = 'Cancelled';
-        stopTimer();
-        addLog('Job cancelled', 'err');
-        showResult('⚠ Job cancelled. Select a file to start again.', 'error');
-        resetControls();
-        es.close();
-      } else if (event.type === 'error') {
-        stopTimer();
-        addLog('Error: ' + event.message, 'err');
-        showResult('❌ ' + event.message, 'error');
-        resetControls();
-        es.close();
+  const confColor = { high: 'var(--green)', medium: 'var(--yellow)', low: 'var(--red)' };
+
+  document.getElementById('review-names-tbody').innerHTML = reviewRowsData.length
+    ? reviewRowsData.map((row, i) => `<tr>
+        <td>${esc(row.original)}</td>
+        <td><input class="edit-input" value="${esc(row.replacement)}" placeholder="Auto-generated by LLM"
+          oninput="reviewRowsData[${i}].replacement=this.value"></td>
+        <td><span style="color:${confColor[row.confidence]||'var(--text-muted)'};font-size:12px;font-weight:600">${row.confidence}</span></td>
+        <td style="color:var(--text-muted)">${row.frequency}</td>
+        <td><button class="btn btn-danger btn-xs" onclick="removeReviewRow('names',${i})">Remove</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="table-empty">No names detected.</td></tr>';
+
+  document.getElementById('review-emails-tbody').innerHTML = emailRowsData.length
+    ? emailRowsData.map((row, i) => `<tr>
+        <td>${esc(row.original)}</td>
+        <td><input class="edit-input" value="${esc(row.replacement)}"
+          oninput="emailRowsData[${i}].replacement=this.value"></td>
+        <td style="color:var(--text-muted)">${row.frequency}</td>
+        <td><button class="btn btn-danger btn-xs" onclick="removeReviewRow('emails',${i})">Remove</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" class="table-empty">No emails detected.</td></tr>';
+}
+
+function removeReviewRow(type, idx) {
+  if (type === 'names') reviewRowsData.splice(idx, 1);
+  else emailRowsData.splice(idx, 1);
+  renderReviewTables();
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', ['names','emails'][i] === tab));
+  document.getElementById('tab-names').classList.toggle('active', tab === 'names');
+  document.getElementById('tab-emails').classList.toggle('active', tab === 'emails');
+}
+
+async function approveJob() {
+  if (!reviewJobId) return;
+  const btn = document.getElementById('approve-btn');
+  btn.disabled = true;
+  document.getElementById('approve-msg').textContent = 'Submitting...';
+  try {
+    const r = await fetch('/api/jobs/' + reviewJobId + '/approve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewRows: reviewRowsData, emailRows: emailRowsData })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Failed');
+    document.getElementById('review-content').style.display = 'none';
+    document.getElementById('review-no-jobs').style.display = 'none';
+    const prog = document.getElementById('review-progress');
+    prog.style.display = 'block';
+    document.getElementById('review-done-msg').style.display = 'none';
+    document.getElementById('review-error-msg').style.display = 'none';
+    ['mapping','applying','writing'].forEach(p => document.getElementById('dot-' + p).className = 'phase-dot');
+    startReviewSSE(reviewJobId);
+  } catch (err) {
+    btn.disabled = false;
+    document.getElementById('approve-msg').textContent = 'Error: ' + err.message;
+  }
+}
+
+function startReviewSSE(jobId) {
+  if (reviewSSE) reviewSSE.close();
+  reviewSSE = new EventSource('/api/progress/' + jobId);
+  reviewSSE.onmessage = e => {
+    try {
+      const ev = JSON.parse(e.data);
+      if (ev.type === 'phase' && ['mapping','applying','writing'].includes(ev.phase)) {
+        document.getElementById('dot-' + ev.phase).className = 'phase-dot active';
       }
-    };
+      if (ev.type === 'done') {
+        ['mapping','applying','writing'].forEach(p => document.getElementById('dot-' + p).className = 'phase-dot done');
+        document.getElementById('review-done-msg').style.display = 'block';
+        reviewSSE.close(); reviewSSE = null;
+      }
+      if (ev.type === 'error') {
+        const el = document.getElementById('review-error-msg');
+        el.textContent = 'Error: ' + ev.message;
+        el.style.display = 'block';
+        reviewSSE.close(); reviewSSE = null;
+      }
+    } catch {}
+  };
+  reviewSSE.onerror = () => { reviewSSE.close(); reviewSSE = null; };
+}
 
-    es.onerror = () => {
-      addLog('Connection to server lost', 'err');
-      resetControls();
-      es.close();
-    };
+// ===== COMPLETED =====
+async function loadCompletedPage() {
+  try {
+    const r = await fetch('/api/queue?status=done');
+    const data = await r.json();
+    const jobs = (data.jobs || []).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    const tbody = document.getElementById('completed-tbody');
+    if (!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="table-empty">No completed files yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = jobs.map(j => `<tr>
+      <td>${esc(j.originalFilename)}</td>
+      <td style="color:var(--text-muted)">${j.entityCount != null ? j.entityCount : '—'}</td>
+      <td style="color:var(--text-muted)">${j.elapsedMs ? formatMs(j.elapsedMs) : '—'}</td>
+      <td style="color:var(--text-muted);white-space:nowrap">${j.completedAt ? new Date(j.completedAt).toLocaleString() : '—'}</td>
+      <td><a href="/api/download/${j.jobId}" class="btn btn-primary btn-sm" download>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download</a></td>
+    </tr>`).join('');
+  } catch (err) {
+    document.getElementById('completed-tbody').innerHTML = `<tr><td colspan="5" class="table-empty">Error: ${esc(err.message)}</td></tr>`;
   }
+}
 
-  function triggerDownload(url) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+// ===== SETTINGS =====
+function loadSettingsPage() {
+  document.getElementById('ollama-base-url').value = getOllamaBaseUrl();
+  refreshSettingsModels();
+  loadCacheStats();
+}
+
+async function loadCacheStats() {
+  try {
+    const r = await fetch('/api/cache/stats');
+    const d = await r.json();
+    document.getElementById('cs-size').textContent = d.size ?? 0;
+    document.getElementById('cs-hits').textContent = d.hits ?? 0;
+    document.getElementById('cs-misses').textContent = d.misses ?? 0;
+  } catch {
+    document.getElementById('cs-size').textContent = '—';
   }
+}
 
-  function showResult(msg, type) {
-    resultEl.textContent = msg;
-    resultEl.className = 'result ' + type;
-    resultEl.style.display = 'block';
-  }
+async function clearCache() {
+  try { await fetch('/api/cache', { method: 'DELETE' }); loadCacheStats(); } catch {}
+}
 
-  cancelBtn.addEventListener('click', async () => {
-    if (!currentJobId) return;
-    cancelBtn.disabled = true;
-    await fetch(`/api/jobs/${currentJobId}/cancel`, { method: 'POST' });
-  });
-
-  function resetControls() {
-    startBtn.disabled = false;
-    cancelBtn.style.display = 'none';
-    cancelBtn.disabled = false;
-    dropzone.style.pointerEvents = '';
-  }
+// ===== UTILS =====
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+function formatMs(ms) {
+  if (ms < 1000) return ms + 'ms';
+  if (ms < 60000) return (ms/1000).toFixed(1) + 's';
+  return Math.floor(ms/60000) + 'm ' + Math.floor((ms%60000)/1000) + 's';
+}
 </script>
 </body>
 </html>
