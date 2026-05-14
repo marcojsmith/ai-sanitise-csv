@@ -1,3 +1,4 @@
+import path from "path";
 import { readCSV, writeCSV } from "./csv-processor";
 import {
   checkOllamaHealth,
@@ -39,6 +40,7 @@ export interface RemapData {
   textColumns: string[];
   emailMap: Map<string, string>;
   filePath: string;
+  originalFilename: string;
 }
 
 const EMAIL_REGEX = /[\w.+%-]+@[\w-]+\.[a-z]{2,}/gi;
@@ -108,6 +110,7 @@ function countFrequency(entity: string, rows: Record<string, string>[], textColu
 
 export async function runExtraction(
   filePath: string,
+  originalFilename: string,
   emit: (event: ProgressEvent) => void,
   opts: OllamaOptions = defaultOllamaOptions,
   cancelToken: CancelToken = { cancelled: false }
@@ -221,6 +224,7 @@ export async function runExtraction(
     textColumns,
     emailMap,
     filePath,
+    originalFilename,
   };
 
   emit({ type: "review" });
@@ -278,7 +282,7 @@ export async function runMappingAndApply(
     const { unlinkSync } = await import("fs");
     try { unlinkSync(outputPath); } catch { /* ignore */ }
 
-    const baseName = remapData.filePath.split(/[\\/]/).pop()?.replace(/\.csv$/i, "") ?? "file";
+    const baseName = path.basename(remapData.originalFilename, path.extname(remapData.originalFilename));
     const outputFilename = `${baseName}_sanitised.csv`;
 
     emit({ type: "done", outputPath, elapsed: Date.now() - startedAt });

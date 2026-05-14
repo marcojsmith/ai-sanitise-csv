@@ -35,3 +35,12 @@ export function clear(): void {
   hits = 0;
   misses = 0;
 }
+
+export function exportEntries(): [string, string[]][] {
+  return Array.from(cache.entries());
+}
+
+export function importEntries(entries: [string, string[]][]): void {
+  cache.clear();
+  for (const [k, v] of entries) cache.set(k, v);
+}

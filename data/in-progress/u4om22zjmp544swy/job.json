@@ -1,0 +1,19 @@
+{
+  "jobId": "u4om22zjmp544swy",
+  "originalFilename": "tickets_report_OL.csv",
+  "inputPath": "C:\\Users\\marco\\Projects\\ai-sanitise-csv\\data\\in-progress\\u4om22zjmp544swy\\input.csv",
+  "model": "gemma4:e2b",
+  "ollamaBaseUrl": "http://localhost:11434",
+  "status": "extracting",
+  "queuePosition": 1,
+  "createdAt": 1778740441956,
+  "startedAt": 1778740462433,
+  "reviewReadyAt": null,
+  "completedAt": null,
+  "errorMessage": null,
+  "reviewRows": null,
+  "emailRows": null,
+  "entityCount": null,
+  "elapsedMs": null,
+  "outputFilename": null
+}
