@@ -17,7 +17,11 @@ let misses = 0;
 
 export function getCached(chunk: string): string[] | null {
   const key = fnv32(normalise(chunk));
-  if (cache.has(key)) { hits++; return cache.get(key)!; }
+  if (cache.has(key)) {
+    hits++;
+    // biome-ignore lint/style/noNonNullAssertion: guarded by cache.has(key)
+    return cache.get(key)!;
+  }
   misses++;
   return null;
 }

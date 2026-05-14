@@ -809,6 +809,7 @@ async function approveJob() {
 
 function startReviewSSE(jobId) {
   if (reviewSSE) reviewSSE.close();
+  let reviewComplete = false;
   reviewSSE = new EventSource('/api/progress/' + jobId);
   reviewSSE.onmessage = e => {
     try {
@@ -817,11 +818,13 @@ function startReviewSSE(jobId) {
         document.getElementById('dot-' + ev.phase).className = 'phase-dot active';
       }
       if (ev.type === 'done') {
+        reviewComplete = true;
         ['mapping','applying','writing'].forEach(p => document.getElementById('dot-' + p).className = 'phase-dot done');
         document.getElementById('review-done-msg').style.display = 'block';
         reviewSSE.close(); reviewSSE = null;
       }
       if (ev.type === 'error') {
+        reviewComplete = true;
         const el = document.getElementById('review-error-msg');
         el.textContent = 'Error: ' + ev.message;
         el.style.display = 'block';
@@ -829,7 +832,14 @@ function startReviewSSE(jobId) {
       }
     } catch {}
   };
-  reviewSSE.onerror = () => { reviewSSE.close(); reviewSSE = null; };
+  reviewSSE.onerror = () => {
+    if (reviewComplete) { reviewSSE.close(); reviewSSE = null; return; }
+    const el = document.getElementById('review-error-msg');
+    el.textContent = 'Connection lost, reconnecting...';
+    el.style.display = 'block';
+    reviewSSE.close(); reviewSSE = null;
+    setTimeout(() => startReviewSSE(jobId), 3000);
+  };
 }
 
 // ===== COMPLETED =====

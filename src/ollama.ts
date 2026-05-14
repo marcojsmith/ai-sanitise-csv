@@ -1,6 +1,7 @@
 export interface EntityScore {
   entity: string;
   confidence: "high" | "medium" | "low";
+  type: "person" | "company";
 }
 
 export interface OllamaOptions {
@@ -17,7 +18,9 @@ export const defaultOllamaOptions: OllamaOptions = {
 
 export async function checkOllamaHealth(baseUrl: string): Promise<boolean> {
   try {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${baseUrl}/api/tags`, {
+      signal: AbortSignal.timeout(5000),
+    });
     return res.ok;
   } catch {
     return false;
@@ -30,9 +33,11 @@ export async function checkOllamaHealth(baseUrl: string): Promise<boolean> {
  */
 export async function extractPIIFromSubjects(
   subjects: string[],
-  opts: OllamaOptions
+  opts: OllamaOptions,
 ): Promise<string[]> {
-  const numberedExcerpts = subjects.map((s, i) => `[${i + 1}] ${s}`).join("\n\n");
+  const numberedExcerpts = subjects
+    .map((s, i) => `[${i + 1}] ${s}`)
+    .join("\n\n");
 
   const prompt = `You are a data anonymisation assistant. Read the text excerpts below and extract every real person name and real company or organisation name you find.
 
@@ -54,20 +59,28 @@ Return ONLY the JSON array — no explanation, no markdown.
 TEXT EXCERPTS:
 ${numberedExcerpts}`;
 
-  console.log(`[EXTRACT] batch of ${subjects.length} excerpts, prompt length: ${prompt.length}`);
+  console.log(
+    `[EXTRACT] batch of ${subjects.length} excerpts, prompt length: ${prompt.length}`,
+  );
 
   try {
     const raw = (await callOllamaRaw(prompt, opts))
-      .replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .trim();
     console.log(`[EXTRACT] raw response: ${raw.slice(0, 300)}`);
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      const results = parsed.filter((v): v is string =>
-        typeof v === "string" &&
-        v.trim().length > 0 &&
-        !/^\[.*\]$/.test(v.trim())  // strip placeholder values like "[Name not found]"
+      const results = parsed.filter(
+        (v): v is string =>
+          typeof v === "string" &&
+          v.trim().length > 0 &&
+          !/^\[.*\]$/.test(v.trim()), // strip placeholder values like "[Name not found]"
       );
-      console.log(`[EXTRACT] found ${results.length} entities:`, results.slice(0, 10));
+      console.log(
+        `[EXTRACT] found ${results.length} entities:`,
+        results.slice(0, 10),
+      );
       return results;
     }
   } catch {
@@ -75,17 +88,22 @@ ${numberedExcerpts}`;
     try {
       const retry = `${prompt}\n\nIMPORTANT: Your previous response was not valid JSON. Return ONLY the raw JSON array with no extra text, e.g. ["Alice Smith","Acme Corp"]`;
       const raw2 = (await callOllamaRaw(retry, opts))
-        .replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
       console.log(`[EXTRACT] retry response: ${raw2.slice(0, 300)}`);
       const parsed2 = JSON.parse(raw2);
       if (Array.isArray(parsed2)) {
-        return parsed2.filter((v): v is string =>
-          typeof v === "string" &&
-          v.trim().length > 0 &&
-          !/^\[.*\]$/.test(v.trim())
+        return parsed2.filter(
+          (v): v is string =>
+            typeof v === "string" &&
+            v.trim().length > 0 &&
+            !/^\[.*\]$/.test(v.trim()),
         );
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   return [];
 }
@@ -96,33 +114,43 @@ ${numberedExcerpts}`;
  */
 export async function scoreEntityConfidence(
   entities: string[],
-  opts: OllamaOptions
+  opts: OllamaOptions,
 ): Promise<EntityScore[]> {
   if (entities.length === 0) return [];
 
   const prompt = `You are a data anonymisation assistant. Below is a list of strings extracted as potential PII (person names or company/organisation names) from support ticket text.
 
-Rate each one's confidence as genuine PII:
-- "high": clearly a real person name or company/organisation name
-- "medium": plausible name but ambiguous
-- "low": likely a false positive (software product, tech term, job title, department name, generic word, etc.)
+Rate each one's confidence as genuine PII and classify its type:
+- confidence "high": clearly a real person name or company/organisation name
+- confidence "medium": plausible name but ambiguous
+- confidence "low": likely a false positive (software product, tech term, job title, department name, generic word, etc.)
+- type "person": human individual name
+- type "company": business, organisation, or brand name
 
 Return ONLY a JSON array, one object per input, in this exact format:
-[{"entity":"Alice Smith","confidence":"high"},{"entity":"SAP","confidence":"low"}]
+[{"entity":"Alice Smith","confidence":"high","type":"person"},{"entity":"Acme Corp","confidence":"high","type":"company"},{"entity":"SAP","confidence":"low","type":"company"}]
 
 Inputs:
 ${JSON.stringify(entities)}`;
 
   const parse = (raw: string): EntityScore[] | null => {
     try {
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      const cleaned = raw
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
       const parsed = JSON.parse(cleaned);
       if (Array.isArray(parsed)) {
-        return parsed.filter((v): v is EntityScore =>
-          typeof v?.entity === "string" && ["high", "medium", "low"].includes(v?.confidence)
+        return parsed.filter(
+          (v): v is EntityScore =>
+            typeof v?.entity === "string" &&
+            ["high", "medium", "low"].includes(v?.confidence) &&
+            ["person", "company"].includes(v?.type),
         );
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
     return null;
   };
 
@@ -132,10 +160,16 @@ ${JSON.stringify(entities)}`;
     const retry = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON array, no explanation or markdown.`;
     const result2 = parse(await callOllamaRaw(retry, opts));
     if (result2) return result2;
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
 
   // Fallback: return all as medium
-  return entities.map(e => ({ entity: e, confidence: "medium" as const }));
+  return entities.map((e) => ({
+    entity: e,
+    confidence: "medium" as const,
+    type: "person" as const,
+  }));
 }
 
 /**
@@ -146,7 +180,7 @@ export async function generateEntityMapping(
   entities: string[],
   opts: OllamaOptions,
   onBatch?: (batch: number, total: number) => void,
-  cancelToken?: { cancelled: boolean }
+  cancelToken?: { cancelled: boolean },
 ): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   const batchSize = 20;
@@ -166,7 +200,7 @@ export async function generateEntityMapping(
 
 async function generateReplacementsForBatch(
   entities: string[],
-  opts: OllamaOptions
+  opts: OllamaOptions,
 ): Promise<Record<string, string>> {
   const prompt = `You are a data anonymisation assistant. Replace each real person name, company name, or organisation name with a realistic but entirely fictitious equivalent of similar cultural origin.
 Return ONLY a JSON object mapping each input to its replacement.
@@ -181,7 +215,10 @@ Output format (strict JSON, no markdown):
   return await callOllamaForJSON(prompt, opts);
 }
 
-async function callOllamaRaw(prompt: string, opts: OllamaOptions): Promise<string> {
+async function callOllamaRaw(
+  prompt: string,
+  opts: OllamaOptions,
+): Promise<string> {
   const res = await fetch(`${opts.baseUrl}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -191,20 +228,28 @@ async function callOllamaRaw(prompt: string, opts: OllamaOptions): Promise<strin
   if (!res.ok) {
     throw new Error(`Ollama error: ${res.status} ${res.statusText}`);
   }
-  const data = await res.json() as { response: string };
+  const data = (await res.json()) as { response: string };
   return data.response.trim();
 }
 
-async function callOllamaForJSON(prompt: string, opts: OllamaOptions): Promise<Record<string, string>> {
+async function callOllamaForJSON(
+  prompt: string,
+  opts: OllamaOptions,
+): Promise<Record<string, string>> {
   let raw = await callOllamaRaw(prompt, opts);
-  raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  raw = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
 
   try {
     return JSON.parse(raw) as Record<string, string>;
   } catch {
     const retryPrompt = `${prompt}\n\nIMPORTANT: Your previous response was not valid JSON. Return ONLY the raw JSON object with no extra text.`;
     const retryRaw = (await callOllamaRaw(retryPrompt, opts))
-      .replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .trim();
     try {
       return JSON.parse(retryRaw) as Record<string, string>;
     } catch {

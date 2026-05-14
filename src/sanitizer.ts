@@ -1,19 +1,28 @@
-import path from "path";
+import path from "node:path";
 import { readCSV, writeCSV } from "./csv-processor";
+import { getCached, setCached } from "./entity-cache";
 import {
   checkOllamaHealth,
   defaultOllamaOptions,
+  type EntityScore,
   extractPIIFromSubjects,
   generateEntityMapping,
-  scoreEntityConfidence,
-  type EntityScore,
   type OllamaOptions,
+  scoreEntityConfidence,
 } from "./ollama";
-import { getCached, setCached } from "./entity-cache";
 
 export type ProgressEvent =
   | { type: "started"; total: number; filePath: string; textColumns: string[] }
-  | { type: "phase"; phase: "reading" | "extracting" | "scoring" | "mapping" | "applying" | "writing" }
+  | {
+      type: "phase";
+      phase:
+        | "reading"
+        | "extracting"
+        | "scoring"
+        | "mapping"
+        | "applying"
+        | "writing";
+    }
   | { type: "llm_batch"; batch: number; total: number }
   | { type: "entities_start"; emails: string[] }
   | { type: "entities_found"; entities: string[] }
@@ -24,7 +33,9 @@ export type ProgressEvent =
   | { type: "done"; outputPath: string; elapsed: number }
   | { type: "error"; message: string };
 
-export interface CancelToken { cancelled: boolean }
+export interface CancelToken {
+  cancelled: boolean;
+}
 
 export interface EntityReviewRow {
   original: string;
@@ -45,7 +56,10 @@ export interface RemapData {
 
 const EMAIL_REGEX = /[\w.+%-]+@[\w-]+\.[a-z]{2,}/gi;
 
-function detectTextColumns(headers: string[], rows: Record<string, string>[]): string[] {
+function detectTextColumns(
+  headers: string[],
+  rows: Record<string, string>[],
+): string[] {
   const sample = rows.slice(0, 100);
   return headers.filter((col) => {
     const values = sample.map((r) => (r[col] ?? "").trim()).filter(Boolean);
@@ -56,7 +70,10 @@ function detectTextColumns(headers: string[], rows: Record<string, string>[]): s
   });
 }
 
-function extractUniqueEmails(rows: Record<string, string>[], textColumns: string[]): Set<string> {
+export function extractUniqueEmails(
+  rows: Record<string, string>[],
+  textColumns: string[],
+): Set<string> {
   const emails = new Set<string>();
   for (const row of rows) {
     for (const col of textColumns) {
@@ -78,34 +95,48 @@ function buildEmailMap(emails: Set<string>): Map<string, string> {
   return map;
 }
 
-function escapeRegex(str: string): string {
+export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function applyAllReplacements(
+export function applyAllReplacements(
   text: string,
   entityMap: Map<string, string>,
-  emailMap: Map<string, string>
+  emailMap: Map<string, string>,
 ): string {
   let result = text;
   for (const [real, fake] of emailMap) {
     result = result.replace(new RegExp(escapeRegex(real), "gi"), fake);
   }
   for (const [real, fake] of entityMap) {
-    result = result.replace(new RegExp(`\\b${escapeRegex(real)}\\b`, "gi"), fake);
+    result = result.replace(
+      new RegExp(`\\b${escapeRegex(real)}\\b`, "gi"),
+      fake,
+    );
   }
   return result;
 }
 
-function countFrequency(entity: string, rows: Record<string, string>[], textColumns: string[]): number {
-  const re = new RegExp(`\\b${escapeRegex(entity)}\\b`, "gi");
-  let count = 0;
+function buildFrequencyMap(
+  entities: string[],
+  rows: Record<string, string>[],
+  textColumns: string[],
+): Map<string, number> {
+  const counts = new Map<string, number>(entities.map((e) => [e, 0]));
+  const patterns = new Map(
+    entities.map((e) => [e, new RegExp(`\\b${escapeRegex(e)}\\b`, "gi")]),
+  );
   for (const row of rows) {
     for (const col of textColumns) {
-      if (re.test(row[col] ?? "")) { count++; re.lastIndex = 0; }
+      const val = row[col] ?? "";
+      if (!val) continue;
+      for (const [entity, re] of patterns) {
+        re.lastIndex = 0;
+        if (re.test(val)) counts.set(entity, (counts.get(entity) ?? 0) + 1);
+      }
     }
   }
-  return count;
+  return counts;
 }
 
 export async function runExtraction(
@@ -113,16 +144,46 @@ export async function runExtraction(
   originalFilename: string,
   emit: (event: ProgressEvent) => void,
   opts: OllamaOptions = defaultOllamaOptions,
-  cancelToken: CancelToken = { cancelled: false }
-): Promise<{ reviewRows: EntityReviewRow[]; emailRows: EntityReviewRow[]; remapData: RemapData }> {
+  cancelToken: CancelToken = { cancelled: false },
+): Promise<{
+  reviewRows: EntityReviewRow[];
+  emailRows: EntityReviewRow[];
+  remapData: RemapData;
+}> {
   const healthy = await checkOllamaHealth(opts.baseUrl);
   if (!healthy) {
-    throw new Error("Ollama is not reachable at " + opts.baseUrl + ". Please start Ollama and ensure the model is downloaded.");
+    throw new Error(
+      "Ollama is not reachable at " +
+        opts.baseUrl +
+        ". Please start Ollama and ensure the model is downloaded.",
+    );
   }
 
   emit({ type: "phase", phase: "reading" });
   const parsed = await readCSV(filePath);
   const textColumns = detectTextColumns(parsed.headers, parsed.rows);
+  if (textColumns.length === 0) {
+    const summary = parsed.headers
+      .map((h) => {
+        const sample = parsed.rows
+          .slice(0, 100)
+          .map((r) => (r[h] ?? "").trim())
+          .filter(Boolean);
+        const avgLen =
+          sample.length > 0
+            ? Math.round(
+                sample.reduce((s, v) => s + v.length, 0) / sample.length,
+              )
+            : 0;
+        const hasWords = sample.some((v) => v.includes(" "));
+        return `  "${h}": avgLen=${avgLen}, hasWords=${hasWords}`;
+      })
+      .join("\n");
+    throw new Error(
+      `No text columns detected. Columns need avgLen > 30 and contain spaces.\n` +
+        `Column analysis:\n${summary}`,
+    );
+  }
   emit({ type: "started", total: parsed.rows.length, filePath, textColumns });
 
   emit({ type: "phase", phase: "extracting" });
@@ -153,7 +214,10 @@ export async function runExtraction(
   emit({ type: "entities_start", emails: Array.from(uniqueEmails).sort() });
 
   for (let b = 0; b < scanBatches; b++) {
-    if (cancelToken.cancelled) { emit({ type: "cancelled" }); throw new Error("cancelled"); }
+    if (cancelToken.cancelled) {
+      emit({ type: "cancelled" });
+      throw new Error("cancelled");
+    }
     emit({ type: "llm_batch", batch: b + 1, total: scanBatches });
     const batch = textSamples.slice(b * SCAN_BATCH, (b + 1) * SCAN_BATCH);
 
@@ -168,18 +232,17 @@ export async function runExtraction(
       }
     }
 
-    let found: string[] = [...cachedResults];
-    if (uncachedChunks.length > 0) {
-      const fromOllama = await extractPIIFromSubjects(uncachedChunks, opts);
-      for (const chunk of uncachedChunks) {
-        setCached(chunk, fromOllama);
-      }
-      found.push(...fromOllama);
+    const found: string[] = [...cachedResults];
+    for (const chunk of uncachedChunks) {
+      const chunkEntities = await extractPIIFromSubjects([chunk], opts);
+      setCached(chunk, chunkEntities);
+      found.push(...chunkEntities);
     }
 
-    const newEntities = found.filter(e => !allEntities.has(e));
+    const newEntities = found.filter((e) => !allEntities.has(e));
     for (const e of newEntities) allEntities.add(e);
-    if (newEntities.length > 0) emit({ type: "entities_found", entities: newEntities.sort() });
+    if (newEntities.length > 0)
+      emit({ type: "entities_found", entities: newEntities.sort() });
   }
 
   if (allEntities.size === 0) {
@@ -188,38 +251,50 @@ export async function runExtraction(
 
   emit({ type: "phase", phase: "scoring" });
   const scores = await scoreEntityConfidence(Array.from(allEntities), opts);
-  if (cancelToken.cancelled) { emit({ type: "cancelled" }); throw new Error("cancelled"); }
+  if (cancelToken.cancelled) {
+    emit({ type: "cancelled" });
+    throw new Error("cancelled");
+  }
   emit({ type: "entities_scored", scores });
 
-  const scoreMap = new Map(scores.map(s => [s.entity, s.confidence]));
+  const scoreMap = new Map(scores.map((s) => [s.entity, s]));
+
+  const allEntitiesArr = Array.from(allEntities);
+  const allEmailsArr = Array.from(emailMap.keys());
+  const freqMap = buildFrequencyMap(
+    [...allEntitiesArr, ...allEmailsArr],
+    parsed.rows,
+    textColumns,
+  );
 
   const reviewRows: EntityReviewRow[] = [];
-  for (const entity of Array.from(allEntities).sort()) {
-    const frequency = countFrequency(entity, parsed.rows, textColumns);
+  for (const entity of allEntitiesArr.sort()) {
+    const frequency = freqMap.get(entity) ?? 0;
+    const score = scoreMap.get(entity);
     reviewRows.push({
       original: entity,
       replacement: "",
-      confidence: scoreMap.get(entity) ?? "medium",
+      confidence: score?.confidence ?? "medium",
       frequency,
-      type: "person"
+      type: score?.type ?? "person",
     });
   }
 
   const emailRows: EntityReviewRow[] = [];
   for (const [email, replacement] of emailMap) {
-    const frequency = countFrequency(email, parsed.rows, textColumns);
+    const frequency = freqMap.get(email) ?? 0;
     emailRows.push({
       original: email,
       replacement,
       confidence: "high",
       frequency,
-      type: "email"
+      type: "email",
     });
   }
   emailRows.sort((a, b) => b.frequency - a.frequency);
 
   const remapData: RemapData = {
-    originalRows: parsed.rows.map(r => ({ ...r })),
+    originalRows: parsed.rows.map((r) => ({ ...r })),
     headers: parsed.headers,
     textColumns,
     emailMap,
@@ -234,21 +309,26 @@ export async function runExtraction(
 
 export async function runMappingAndApply(
   approvedRows: EntityReviewRow[],
-  approvedEmails: EntityReviewRow[],
+  _approvedEmails: EntityReviewRow[],
   remapData: RemapData,
   emit: (event: ProgressEvent) => void,
   opts: OllamaOptions = defaultOllamaOptions,
-  cancelToken: CancelToken = { cancelled: false }
+  cancelToken: CancelToken = { cancelled: false },
 ): Promise<{ content: string; outputFilename: string; elapsed: number }> {
   const startedAt = Date.now();
 
   try {
     emit({ type: "phase", phase: "mapping" });
 
-    const entityList = approvedRows.map(r => r.original);
-    const entityMap = await generateEntityMapping(entityList, opts, (batch, total) => {
-      emit({ type: "llm_batch", batch, total });
-    }, cancelToken);
+    const entityList = approvedRows.map((r) => r.original);
+    const entityMap = await generateEntityMapping(
+      entityList,
+      opts,
+      (batch, total) => {
+        emit({ type: "llm_batch", batch, total });
+      },
+      cancelToken,
+    );
 
     for (const row of approvedRows) {
       if (row.replacement && row.replacement.trim() !== "") {
@@ -256,18 +336,28 @@ export async function runMappingAndApply(
       }
     }
 
-    if (cancelToken.cancelled) { emit({ type: "cancelled" }); throw new Error("cancelled"); }
+    if (cancelToken.cancelled) {
+      emit({ type: "cancelled" });
+      throw new Error("cancelled");
+    }
 
     emit({ type: "phase", phase: "applying" });
-    const rows = remapData.originalRows.map(r => ({ ...r }));
+    const rows = remapData.originalRows.map((r) => ({ ...r }));
     let processed = 0;
     const REPORT_EVERY = 50;
 
     for (const row of rows) {
-      if (cancelToken.cancelled) { emit({ type: "cancelled" }); throw new Error("cancelled"); }
+      if (cancelToken.cancelled) {
+        emit({ type: "cancelled" });
+        throw new Error("cancelled");
+      }
       for (const col of remapData.textColumns) {
         if (row[col]) {
-          row[col] = applyAllReplacements(row[col], entityMap, remapData.emailMap);
+          row[col] = applyAllReplacements(
+            row[col],
+            entityMap,
+            remapData.emailMap,
+          );
         }
       }
       processed++;
@@ -277,12 +367,22 @@ export async function runMappingAndApply(
     }
 
     emit({ type: "phase", phase: "writing" });
-    const outputPath = await writeCSV(remapData.filePath, { headers: remapData.headers, rows });
+    const outputPath = await writeCSV(remapData.filePath, {
+      headers: remapData.headers,
+      rows,
+    });
     const content = await Bun.file(outputPath).text();
-    const { unlinkSync } = await import("fs");
-    try { unlinkSync(outputPath); } catch { /* ignore */ }
+    const { unlinkSync } = await import("node:fs");
+    try {
+      unlinkSync(outputPath);
+    } catch {
+      /* ignore */
+    }
 
-    const baseName = path.basename(remapData.originalFilename, path.extname(remapData.originalFilename));
+    const baseName = path.basename(
+      remapData.originalFilename,
+      path.extname(remapData.originalFilename),
+    );
     const outputFilename = `${baseName}_sanitised.csv`;
 
     emit({ type: "done", outputPath, elapsed: Date.now() - startedAt });

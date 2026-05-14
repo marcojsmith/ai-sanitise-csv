@@ -1,18 +1,47 @@
+import { mkdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { Hono } from "hono";
-import { readFileSync, mkdirSync } from "fs";
-import path from "path";
-import { runExtraction, runMappingAndApply, type ProgressEvent, type RemapData, type CancelToken, type EntityReviewRow } from "./sanitizer";
-import { defaultOllamaOptions } from "./ollama";
-import { getStats, clear as clearCache, exportEntries, importEntries } from "./entity-cache";
 import {
-  initDataDirs, saveJob, moveJobFolder, saveRemapData, loadRemapData,
-  deleteRemapData, saveOutput, readOutput, loadAllJobs, saveEntityCache,
-  loadEntityCache, bucketForStatus, type PersistedJob
+  clear as clearCache,
+  exportEntries,
+  getStats,
+  importEntries,
+} from "./entity-cache";
+import { defaultOllamaOptions } from "./ollama";
+import {
+  deleteRemapData,
+  initDataDirs,
+  loadAllJobs,
+  loadEntityCache,
+  loadRemapData,
+  moveJobFolder,
+  type PersistedJob,
+  readOutput,
+  saveEntityCache,
+  saveJob,
+  saveOutput,
+  saveRemapData,
 } from "./persistence";
+import {
+  type EntityReviewRow,
+  type ProgressEvent,
+  type RemapData,
+  runExtraction,
+  runMappingAndApply,
+} from "./sanitizer";
 
 const app = new Hono();
 
-type JobStatus = "queued" | "extracting" | "scoring" | "awaiting_review" | "mapping" | "applying" | "done" | "error" | "cancelled";
+type JobStatus =
+  | "queued"
+  | "extracting"
+  | "scoring"
+  | "awaiting_review"
+  | "mapping"
+  | "applying"
+  | "done"
+  | "error"
+  | "cancelled";
 
 interface QueueJob {
   jobId: string;
@@ -47,14 +76,19 @@ function generateJobId(): string {
 }
 
 function serialiseJob(job: QueueJob) {
-  const { listeners, eventBuffer, cancelToken, remapData, approveResolve, ...rest } = job as any;
+  const { listeners, eventBuffer, cancelToken, remapData, ...rest } =
+    // biome-ignore lint/suspicious/noExplicitAny: stripping runtime-only fields not in the type
+    job as any;
   return rest;
 }
 
 let ollamaQueue: Promise<void> = Promise.resolve();
 function withOllama<T>(fn: () => Promise<T>): Promise<T> {
   const p = ollamaQueue.then(fn);
-  ollamaQueue = p.then(() => {}, () => {});
+  ollamaQueue = p.then(
+    () => {},
+    () => {},
+  );
   return p;
 }
 
@@ -70,11 +104,14 @@ async function runQueueProcessor(): Promise<void> {
   processorRunning = true;
   while (true) {
     const queued = [...jobs.values()]
-      .filter(j => j.status === "queued")
+      .filter((j) => j.status === "queued")
       .sort((a, b) => a.queuePosition - b.queuePosition);
 
     const job = queued[0];
-    if (!job) { processorRunning = false; return; }
+    if (!job) {
+      processorRunning = false;
+      return;
+    }
 
     job.status = "extracting";
     job.startedAt = Date.now();
@@ -83,18 +120,26 @@ async function runQueueProcessor(): Promise<void> {
     emitToJob(job, { type: "phase", phase: "extracting" });
 
     try {
-      const result = await withOllama(() => runExtraction(
-        job.inputPath,
-        job.originalFilename,
-        (event) => {
-          if (event.type === "phase") job.currentPhase = event.phase;
-          if (event.type === "llm_batch") job.phaseProgress = { current: event.batch, total: event.total };
-          if (event.type === "started") job.phaseProgress = { current: 0, total: event.total };
-          emitToJob(job, event);
-        },
-        { ...defaultOllamaOptions, baseUrl: job.ollamaBaseUrl, model: job.model },
-        job.cancelToken
-      ));
+      const result = await withOllama(() =>
+        runExtraction(
+          job.inputPath,
+          job.originalFilename,
+          (event) => {
+            if (event.type === "phase") job.currentPhase = event.phase;
+            if (event.type === "llm_batch")
+              job.phaseProgress = { current: event.batch, total: event.total };
+            if (event.type === "started")
+              job.phaseProgress = { current: 0, total: event.total };
+            emitToJob(job, event);
+          },
+          {
+            ...defaultOllamaOptions,
+            baseUrl: job.ollamaBaseUrl,
+            model: job.model,
+          },
+          job.cancelToken,
+        ),
+      );
 
       if (job.cancelToken.cancelled) {
         job.status = "cancelled";
@@ -126,6 +171,7 @@ async function runQueueProcessor(): Promise<void> {
         job.errorMessage = err instanceof Error ? err.message : String(err);
         await moveJobFolder(job.jobId, "in-progress", "failed");
         await persistJob(job);
+        // biome-ignore lint/style/noNonNullAssertion: set on the line above
         emitToJob(job, { type: "error", message: job.errorMessage! });
       }
     }
@@ -217,9 +263,11 @@ async function startup() {
 app.get("/api/models", async (c) => {
   try {
     const baseUrl = c.req.query("baseUrl") || defaultOllamaOptions.baseUrl;
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${baseUrl}/api/tags`, {
+      signal: AbortSignal.timeout(5000),
+    });
     if (!res.ok) return c.json({ models: [] });
-    const data = await res.json() as { models: { name: string }[] };
+    const data = (await res.json()) as { models: { name: string }[] };
     const names = (data.models ?? []).map((m) => m.name).sort();
     return c.json({ models: names, default: defaultOllamaOptions.model });
   } catch {
@@ -228,7 +276,10 @@ app.get("/api/models", async (c) => {
 });
 
 app.get("/", (c) => {
-  const html = readFileSync(path.join(import.meta.dir, "../public/index.html"), "utf-8");
+  const html = readFileSync(
+    path.join(import.meta.dir, "../public/index.html"),
+    "utf-8",
+  );
   return c.html(html);
 });
 
@@ -236,16 +287,27 @@ app.post("/api/queue/add", async (c) => {
   const formData = await c.req.formData();
   const files = formData.getAll("files");
   const modelParam = formData.get("model");
-  const model = (typeof modelParam === "string" && modelParam.trim()) ? modelParam.trim() : defaultOllamaOptions.model;
+  const model =
+    typeof modelParam === "string" && modelParam.trim()
+      ? modelParam.trim()
+      : defaultOllamaOptions.model;
   const ollamaBaseUrlParam = formData.get("ollamaBaseUrl");
-  const ollamaBaseUrl = (typeof ollamaBaseUrlParam === "string" && ollamaBaseUrlParam.trim()) ? ollamaBaseUrlParam.trim() : defaultOllamaOptions.baseUrl;
+  const ollamaBaseUrl =
+    typeof ollamaBaseUrlParam === "string" && ollamaBaseUrlParam.trim()
+      ? ollamaBaseUrlParam.trim()
+      : defaultOllamaOptions.baseUrl;
 
-  const validFiles = files.filter(f => f && typeof f !== "string" && (f as File).name);
+  const validFiles = files.filter(
+    (f) => f && typeof f !== "string" && (f as File).name,
+  );
   if (validFiles.length === 0) {
     return c.json({ error: "At least one CSV file must be uploaded" }, 400);
   }
 
-  const maxPosition = Math.max(0, ...[...jobs.values()].map(j => j.queuePosition));
+  const maxPosition = Math.max(
+    0,
+    ...[...jobs.values()].map((j) => j.queuePosition),
+  );
   const jobIds: string[] = [];
 
   for (const file of validFiles) {
@@ -292,26 +354,31 @@ app.post("/api/queue/add", async (c) => {
 
 app.get("/api/queue", (c) => {
   const statusFilter = c.req.query("status");
-  let jobsList = [...jobs.values()].map(serialiseJob).sort((a, b) => b.createdAt - a.createdAt);
+  let jobsList = [...jobs.values()]
+    .map(serialiseJob)
+    .sort((a, b) => b.createdAt - a.createdAt);
   if (statusFilter) {
     const statuses = statusFilter.split(",");
-    jobsList = jobsList.filter(j => statuses.includes(j.status));
+    jobsList = jobsList.filter((j) => statuses.includes(j.status));
   }
   return c.json({ jobs: jobsList });
 });
 
 app.post("/api/queue/reorder", async (c) => {
-  const { jobId, direction } = await c.req.json<{ jobId: string; direction: "up" | "down" }>();
+  const { jobId, direction } = await c.req.json<{
+    jobId: string;
+    direction: "up" | "down";
+  }>();
   const job = jobs.get(jobId);
   if (!job || job.status !== "queued") {
     return c.json({ error: "Job not found or not in queued status" }, 400);
   }
 
   const queuedJobs = [...jobs.values()]
-    .filter(j => j.status === "queued")
+    .filter((j) => j.status === "queued")
     .sort((a, b) => a.queuePosition - b.queuePosition);
 
-  const currentIndex = queuedJobs.findIndex(j => j.jobId === jobId);
+  const currentIndex = queuedJobs.findIndex((j) => j.jobId === jobId);
   if (currentIndex === -1) return c.json({ error: "Job not in queue" }, 400);
 
   const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
@@ -326,7 +393,9 @@ app.post("/api/queue/reorder", async (c) => {
   await persistJob(job);
   await persistJob(targetJob);
 
-  const jobsList = [...jobs.values()].map(serialiseJob).sort((a, b) => b.createdAt - a.createdAt);
+  const jobsList = [...jobs.values()]
+    .map(serialiseJob)
+    .sort((a, b) => b.createdAt - a.createdAt);
   return c.json({ jobs: jobsList });
 });
 
@@ -338,7 +407,11 @@ app.delete("/api/jobs/:jobId", async (c) => {
   const fromBucket = job.status === "queued" ? "queued" : "in-progress";
   if (job.status === "queued") {
     job.status = "cancelled";
-  } else if (job.status === "extracting" || job.status === "mapping" || job.status === "applying") {
+  } else if (
+    job.status === "extracting" ||
+    job.status === "mapping" ||
+    job.status === "applying"
+  ) {
     job.cancelToken.cancelled = true;
     job.status = "cancelled";
   } else if (job.status === "awaiting_review") {
@@ -347,7 +420,9 @@ app.delete("/api/jobs/:jobId", async (c) => {
 
   try {
     await moveJobFolder(job.jobId, fromBucket, "failed");
-  } catch { /* may already be in wrong place */ }
+  } catch {
+    /* may already be in wrong place */
+  }
   await persistJob(job);
 
   return c.json({ ok: true });
@@ -362,7 +437,7 @@ app.get("/api/jobs/:jobId/review-data", (c) => {
   return c.json({
     reviewRows: job.reviewRows,
     emailRows: job.emailRows,
-    originalFilename: job.originalFilename
+    originalFilename: job.originalFilename,
   });
 });
 
@@ -373,7 +448,10 @@ app.post("/api/jobs/:jobId/approve", async (c) => {
     return c.json({ error: "Job not found or not awaiting review" }, 400);
   }
 
-  const { reviewRows, emailRows } = await c.req.json<{ reviewRows: EntityReviewRow[]; emailRows: EntityReviewRow[] }>();
+  const { reviewRows, emailRows } = await c.req.json<{
+    reviewRows: EntityReviewRow[];
+    emailRows: EntityReviewRow[];
+  }>();
 
   job.status = "mapping";
   job.currentPhase = "mapping";
@@ -383,15 +461,25 @@ app.post("/api/jobs/:jobId/approve", async (c) => {
       const result = await runMappingAndApply(
         reviewRows,
         emailRows,
+        // biome-ignore lint/style/noNonNullAssertion: validated before this handler is reachable
         job.remapData!,
         (event) => {
           if (event.type === "phase") job.currentPhase = event.phase;
-          if (event.type === "llm_batch") job.phaseProgress = { current: event.batch, total: event.total };
-          if (event.type === "row") job.phaseProgress = { current: event.processed, total: event.total };
+          if (event.type === "llm_batch")
+            job.phaseProgress = { current: event.batch, total: event.total };
+          if (event.type === "row")
+            job.phaseProgress = {
+              current: event.processed,
+              total: event.total,
+            };
           emitToJob(job, event);
         },
-        { ...defaultOllamaOptions, baseUrl: job.ollamaBaseUrl, model: job.model },
-        job.cancelToken
+        {
+          ...defaultOllamaOptions,
+          baseUrl: job.ollamaBaseUrl,
+          model: job.model,
+        },
+        job.cancelToken,
       );
 
       job.status = "done";
@@ -440,14 +528,24 @@ app.get("/api/progress/:jobId", (c) => {
       const send = (event: ProgressEvent) => {
         if (closed) return;
         try {
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+          controller.enqueue(
+            new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
         } catch {
           closed = true;
           return;
         }
-        if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
+        if (
+          event.type === "done" ||
+          event.type === "error" ||
+          event.type === "cancelled"
+        ) {
           closed = true;
-          try { controller.close(); } catch { /* already closed */ }
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
           const listeners = job.listeners;
           const idx = listeners.indexOf(send);
           if (idx !== -1) listeners.splice(idx, 1);
@@ -455,21 +553,30 @@ app.get("/api/progress/:jobId", (c) => {
       };
 
       for (const evt of job.eventBuffer) send(evt);
-      if (job.status === "done" || job.status === "error" || job.status === "cancelled") return;
+      if (
+        job.status === "done" ||
+        job.status === "error" ||
+        job.status === "cancelled"
+      )
+        return;
 
       job.listeners.push(send);
     },
   });
 
   return new Response(stream, {
-    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
   });
 });
 
 app.get("/api/download/:jobId", async (c) => {
   const jobId = c.req.param("jobId");
   const job = jobs.get(jobId);
-  if (!job || !job.outputFilename) {
+  if (!job?.outputFilename) {
     return c.json({ error: "File not found" }, 404);
   }
   const output = await readOutput(jobId);

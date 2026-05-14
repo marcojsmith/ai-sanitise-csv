@@ -1,5 +1,5 @@
+import path from "node:path";
 import Papa from "papaparse";
-import path from "path";
 
 export interface ParsedCSV {
   headers: string[];
@@ -21,7 +21,9 @@ export async function readCSV(filePath: string): Promise<ParsedCSV> {
     }
   }
   if (headerLineIndex === -1) {
-    throw new Error("Could not find a header row (expected a line with 4 or more columns)");
+    throw new Error(
+      "Could not find a header row (expected a line with 4 or more columns)",
+    );
   }
 
   // Strip preamble - only parse from the header row onwards
@@ -33,9 +35,13 @@ export async function readCSV(filePath: string): Promise<ParsedCSV> {
   });
 
   if (result.errors.length > 0) {
-    const fatal = result.errors.filter((e) => e.type === "Delimiter" || e.type === "Quotes");
+    const fatal = result.errors.filter(
+      (e) => e.type === "Delimiter" || e.type === "Quotes",
+    );
     if (fatal.length > 0) {
-      throw new Error(`CSV parse errors: ${fatal.map((e) => e.message).join(", ")}`);
+      throw new Error(
+        `CSV parse errors: ${fatal.map((e) => e.message).join(", ")}`,
+      );
     }
   }
 
@@ -45,7 +51,10 @@ export async function readCSV(filePath: string): Promise<ParsedCSV> {
   };
 }
 
-export async function writeCSV(filePath: string, data: ParsedCSV): Promise<string> {
+export async function writeCSV(
+  filePath: string,
+  data: ParsedCSV,
+): Promise<string> {
   const outputPath = buildOutputPath(filePath);
   const csv = Papa.unparse(data.rows, { columns: data.headers });
   await Bun.write(outputPath, csv);

@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "bun run --watch src/server.ts",
-    "start": "bun run src/server.ts"
+    "start": "bun run src/server.ts",
+    "test": "bun test",
+    "lint": "biome check src/ tests/",
+    "lint:fix": "biome check --write --unsafe src/ tests/",
+    "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
     "hono": "latest",
     "papaparse": "latest"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@types/papaparse": "latest",
     "bun-types": "latest"
   }
